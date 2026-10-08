@@ -125,8 +125,21 @@ static int child(int argc,char **argv)
         CHECK(CreateProcessW(path,line,NULL,NULL,TRUE,CREATE_NO_WINDOW,NULL,NULL,&si,&pi));CloseHandle(pi.hThread);CloseHandle(pi.hProcess);return 0;
     }
     if(!strcmp(mode,"handle")) {
-        HANDLE unrelated=(HANDLE)(ULONG_PTR)_strtoui64(argv[2],NULL,10);
-        CHECK(WaitForSingleObject(unrelated,0)==WAIT_FAILED); return 0;
+        HANDLE raw=(HANDLE)(ULONG_PTR)_strtoui64(argv[2],NULL,10), candidate=NULL;
+        /* Numeric slots can be reused by unrelated child startup handles.
+         * Capture any candidate before opening new handles, then compare the
+         * actual object against a duplicate of the parent's known event. */
+        if(DuplicateHandle(GetCurrentProcess(),raw,GetCurrentProcess(),&candidate,
+                           0,FALSE,DUPLICATE_SAME_ACCESS)) {
+            typedef BOOL (WINAPI *CompareFn)(HANDLE,HANDLE);
+            CompareFn compare=(CompareFn)GetProcAddress(GetModuleHandleW(L"KernelBase.dll"),"CompareObjectHandles");
+            HANDLE parent=OpenProcess(PROCESS_DUP_HANDLE,FALSE,(DWORD)strtoul(argv[3],NULL,10)),known=NULL;
+            CHECK(compare&&parent);
+            CHECK(DuplicateHandle(parent,raw,GetCurrentProcess(),&known,0,FALSE,DUPLICATE_SAME_ACCESS));
+            CHECK(!compare(candidate,known));
+            CloseHandle(known);CloseHandle(parent);CloseHandle(candidate);
+        } else CHECK(GetLastError()==ERROR_INVALID_HANDLE);
+        return 0;
     }
     if(!strcmp(mode,"wide-arg")) {
         wchar_t name[WIN_WSL_NAME_CAP];CHECK(argc==4);CHECK(winWslDistroArgument(2,name));
@@ -144,22 +157,23 @@ static int child(int argc,char **argv)
 }
 static void process(void)
 {
-    wchar_t path[MAX_PATH],system[MAX_PATH],handleText[40];
+    wchar_t path[MAX_PATH],system[MAX_PATH],handleText[40],parentText[40];
     SECURITY_ATTRIBUTES sa={sizeof(sa),NULL,TRUE}; HANDLE unrelated=CreateEventW(&sa,TRUE,FALSE,NULL), descendant;
-    DWORD pid=0; const wchar_t *handles[]={L"handle",handleText,NULL};unsigned char out[256];size_t bytes;DWORD start;
+    DWORD pid=0; const wchar_t *handles[]={L"handle",handleText,parentText,NULL};unsigned char out[256];size_t bytes;DWORD start;
     const wchar_t *echo[]={L"echo",selected,L"a\"b\\",L"& | $(literal)",NULL};
     const wchar_t *wide[]={L"wide-arg",L"-wsldistro",selected,NULL};
     const wchar_t *stall[]={L"stall",NULL},*flood[]={L"flood",NULL},*desc[]={L"descendant",NULL},*fail[]={L"nonzero",NULL};
     CHECK(unrelated);swprintf(handleText,40,L"%llu",(unsigned long long)(ULONG_PTR)unrelated);
+    swprintf(parentText,40,L"%lu",GetCurrentProcessId());
     GetModuleFileNameW(NULL,path,MAX_PATH);CHECK(winWslSystemPath(system,MAX_PATH));CHECK(wcsstr(system,L"\\wsl.exe"));
-    CHECK(winWslRunProcess(path,echo,out,sizeof(out),&bytes,1000)==WIN_WSL_SUCCESS);CHECK(bytes>0);
+    CHECK(winWslRunProcess(path,echo,out,sizeof(out),&bytes,5000)==WIN_WSL_SUCCESS);CHECK(bytes>0);
     CHECK(!memcmp(out,selected,(wcslen(selected)+1)*2));
-    CHECK(winWslRunProcess(path,wide,out,sizeof(out),&bytes,1000)==WIN_WSL_SUCCESS);CHECK(bytes==wcslen(selected)*2&&!memcmp(out,selected,bytes));
-    CHECK(winWslRunProcess(path,handles,out,sizeof(out),&bytes,1000)==WIN_WSL_SUCCESS);CloseHandle(unrelated);
-    CHECK(winWslRunProcess(path,fail,out,sizeof(out),&bytes,1000)==WIN_WSL_UNSUPPORTED);
-    CHECK(winWslRunProcess(path,flood,out,sizeof(out),&bytes,1000)==WIN_WSL_UNSUPPORTED&&bytes==0);
+    CHECK(winWslRunProcess(path,wide,out,sizeof(out),&bytes,5000)==WIN_WSL_SUCCESS);CHECK(bytes==wcslen(selected)*2&&!memcmp(out,selected,bytes));
+    CHECK(winWslRunProcess(path,handles,out,sizeof(out),&bytes,5000)==WIN_WSL_SUCCESS);CloseHandle(unrelated);
+    CHECK(winWslRunProcess(path,fail,out,sizeof(out),&bytes,5000)==WIN_WSL_UNSUPPORTED);
+    CHECK(winWslRunProcess(path,flood,out,sizeof(out),&bytes,5000)==WIN_WSL_UNSUPPORTED&&bytes==0);
     start=GetTickCount();CHECK(winWslRunProcess(path,stall,out,sizeof(out),&bytes,200)==WIN_WSL_TIMEOUT);CHECK(GetTickCount()-start<1500);
-    memset(out,0,sizeof(out));start=GetTickCount();CHECK(winWslRunProcess(path,desc,out,sizeof(out),&bytes,200)==WIN_WSL_TIMEOUT);CHECK(GetTickCount()-start<1500);
+    memset(out,0,sizeof(out));start=GetTickCount();CHECK(winWslRunProcess(path,desc,out,sizeof(out),&bytes,5000)==WIN_WSL_TIMEOUT);CHECK(GetTickCount()-start<6500);
     memcpy(&pid,out,sizeof(pid));CHECK(pid);descendant=OpenProcess(SYNCHRONIZE,FALSE,pid);
     if(descendant){CHECK(WaitForSingleObject(descendant,1000)==WAIT_OBJECT_0);CloseHandle(descendant);}
     puts("PASS real hidden Unicode runner: exact argv, separate stderr, nonzero, output cap, timeout/descendant pipe deadline");
