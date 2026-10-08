@@ -58,3 +58,7 @@ operation, or access denial under another Windows user's token.
   Host registration Version is a conservative compatibility dependency; full
   server/WSL runtime, localized hosts and coordinated restart/idle tests remain
   separate acceptance work.
+
+- `winadmission-state.ps1`: invokes the same production `ApplyState` callback used
+  by the WM worker, checking iconic/zoom remaps of a surviving HWND with unchanged
+  recorded state, plus unchanged-state no-op behavior outside pending admission.

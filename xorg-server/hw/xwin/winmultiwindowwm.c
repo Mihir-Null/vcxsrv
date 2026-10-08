@@ -657,24 +657,7 @@ static void ApplyPosition(HWND hwnd, void *data)
         (GetWindowLongPtr(hwnd, GWL_EXSTYLE) & WS_EX_APPWINDOW) ||
         GetWindowLongPtr(hwnd, GWLP_HWNDPARENT) == 0 ? TRUE : FALSE);
 }
-#define XCB_ICCCM_WM_STATE_ZOOM 2
-typedef struct { int state, previous; } NativeState;
-static void ApplyState(HWND hwnd, void *data)
-{
-    NativeState *state = data;
-    int command;
-    state->previous = (int)(intptr_t)GetProp(hwnd, WIN_STATE_PROP);
-    if (state->previous == state->state) return;
-    SetProp(hwnd, WIN_STATE_PROP, (HANDLE)(intptr_t)state->state);
-    switch (state->state) {
-    case XCB_ICCCM_WM_STATE_ICONIC: command = SW_SHOWMINNOACTIVE; break;
-    case XCB_ICCCM_WM_STATE_ZOOM: command = SW_SHOWMAXIMIZED; break;
-    case XCB_ICCCM_WM_STATE_NORMAL: command = SW_SHOWNOACTIVATE; break;
-    case XCB_ICCCM_WM_STATE_WITHDRAWN: command = SW_HIDE; break;
-    default: return;
-    }
-    winAdmissionSetShowCommand(hwnd, command);
-}
+#include "winnativestate.h"
 
 /*
  * Updates the name of a HWND according to its X WM_NAME property

@@ -34,3 +34,36 @@ Task 3 should consume the managed server lifecycle normally. There is no manager
 - Build-ready source list sent to controller after successful compilation. One focused self-review completed; fixed explicit unsigned XID widening and direct relative include paths. No server/client/WSL/user daemon was stopped or changed by this implementer.
 
 Logs (ignored local evidence): `.native-tests/admission-compile.log`, `.native-tests/admission-all.log`. Preserved baseline: `C:/Users/walnu/source/vcxsrv-build-tools/test-window-events2.log`.
+
+
+## Review fix round 1: unchanged recorded state on a new admission
+
+Base: `b0b81f730160f66c4d3ab5ca7f2050d4c43cfd10` (includes Task 3, preserved).
+
+- Verified the P2: `winAdmissionBegin` resets the per-map show command while a
+  surviving HWND retains `WIN_STATE_PROP`; `ApplyState` returned on unchanged state
+  before supplying the new admission's iconic/zoom command.
+- Extracted the existing small owner callback into shared production
+  `winnativestate.h`, included by `winmultiwindowwm.c` and the regression fixture.
+  The test exercises that actual callback, rather than directly setting the
+  admission command or duplicating its policy.
+- Changed only the early-return condition: unchanged state returns immediately
+  when no admission is pending. During a pending map the requested show command
+  is captured even if state is unchanged. The recorded native property is only
+  set when it changes; `NativeState.previous` and `UpdateState`'s early return
+  remain unchanged, preserving redundant X property publication suppression.
+- Red: actual callback fixture initially passed initial iconic/zoom admission but
+  failed both same-state remaps (`iconic=0 zoomed=0 visible=1`). Green: both remaps
+  pass, and same-state calls outside pending admission (including generic native
+  windows) remain no-ops. Disposable TOOLWINDOW fixture windows avoid interference
+  from the desktop tiler. Explicit CHECK assertions execute in release builds.
+- Passed focused `winadmission-state.ps1`, existing `winadmission.ps1`, and the
+  affected `winmultiwindowwm.c` compilation. Compiler emitted only existing
+  warnings; the focused fixture compiled cleanly. The unrelated full suite was
+  intentionally not repeated for this scoped correction.
+- Frozen build files: `winmultiwindowwm.c`, `winnativestate.h`. No build-list
+  change is needed for the shared header. No live server, Emacs, WSL, or Task 3
+  implementation was modified. Controller owns full build and scoped review.
+
+Evidence: `.native-tests/admission-fix1-red.log`, `admission-fix1-green.log`,
+`admission-fix1-native.log`, and `admission-fix1-compile.log`.
