@@ -80,3 +80,9 @@ No new Windows service, firewall exception, Hyper-V group membership or elevated
 ## Completion evidence
 
 Deliver source changes, reproducible build and packaging commands, the built manager and server artifacts, the EmptyNet integration change, rollback instructions and an honest test report. Keep unverified claims about hardening and tiler compatibility out of product copy. Do not publish a release or purchase signing credentials as part of this work.
+
+## Approved execution updates
+
+- User approved subagent-driven execution, adding a Windows-local transport for internal helpers, and lifted the WSL rebuild hold on 2026-10-07.
+- Linux integration will use a private runtime AF_UNIX socket with DISPLAY=unix:/absolute/socket. This format was verified against the installed Xlib with a diagnostic setup exchange. Xauthority client lookup uses display number 0 for this path format; preserve server display 1 and port 106001 and rewrite only the guest authority record selector, not its cookie.
+- Windows internal transport must also require a cookie; no host-based bypass on AF_UNIX. Remove existing WINDBG cookie-content logging in winauth.c. Pair Winsock lifetime correctly with bundled xcb's WSAStartup/WSACleanup behavior.
