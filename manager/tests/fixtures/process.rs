@@ -30,6 +30,70 @@ fn main() {
         }
         "exit" => std::process::exit(23),
         "pipe-private" => pipe_private(),
+        "owner-start-failure" => owner_start_failure(),
+        "owner-exit" => {
+            use vcxsrv_wsl_manager::{
+                instance::InstanceGuard,
+                owner::{ServerBinding, ServerOwner},
+                storage::ProtectedDirectory,
+            };
+            let path = std::path::PathBuf::from(args.next().unwrap());
+            let scope = args.next().unwrap();
+            let abrupt = args.next().unwrap() == "abrupt";
+            let guard = std::sync::Arc::new(InstanceGuard::acquire(&scope).unwrap());
+            let store = ProtectedDirectory::open_or_create(&path, guard).unwrap();
+            drop(store.create_new("authority", b"fixture").unwrap());
+            let binding = ServerBinding::new(
+                &store,
+                std::env::current_exe().unwrap(),
+                "NixOS".into(),
+                "Empty".into(),
+                1,
+                "authority",
+            )
+            .unwrap();
+            let owner = ServerOwner::spawn(&store, &binding, &["sleep".into()]).unwrap();
+            assert!(owner.is_alive().unwrap());
+            if abrupt {
+                std::process::exit(0)
+            }
+            // Returning exercises ordinary Rust drops; process::exit skips them.
+        }
+        "job-report" => {
+            use windows_sys::Win32::{
+                Foundation::*,
+                System::{JobObjects::*, Threading::*},
+            };
+            unsafe {
+                let mut present = 0;
+                IsProcessInJob(GetCurrentProcess(), std::ptr::null_mut(), &mut present);
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                let ok = QueryInformationJobObject(
+                    std::ptr::null_mut(),
+                    JobObjectExtendedLimitInformation,
+                    (&mut info as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                    std::mem::size_of_val(&info) as u32,
+                    std::ptr::null_mut(),
+                );
+                std::fs::write(
+                    args.next().unwrap(),
+                    format!(
+                        "job={present}; query={ok}; error={}; flags={:x}",
+                        GetLastError(),
+                        info.BasicLimitInformation.LimitFlags
+                    ),
+                )
+                .unwrap();
+            }
+            std::thread::sleep(Duration::from_secs(2));
+        }
+        "instance" => {
+            let scope = args.next().unwrap();
+            match vcxsrv_wsl_manager::instance::InstanceGuard::acquire(&scope) {
+                Ok(_guard) => print!("acquired"),
+                Err(_) => print!("denied"),
+            }
+        }
         "inheritance" => {
             use windows_sys::Win32::Foundation::{GetHandleInformation, HANDLE};
             let handle = args.next().unwrap().parse::<usize>().unwrap() as HANDLE;
@@ -60,6 +124,44 @@ fn main() {
         }
         _ => panic!("unknown fixture mode"),
     }
+}
+
+fn owner_start_failure() {
+    use vcxsrv_wsl_manager::{
+        instance::InstanceGuard,
+        owner::{ServerBinding, ServerOwner},
+        storage::{ProtectedDirectory, StorageError},
+    };
+    let scope = format!("fixture-failure-{}", std::process::id());
+    let path = std::env::temp_dir().join(&scope);
+    let guard = std::sync::Arc::new(InstanceGuard::acquire(&scope).unwrap());
+    let store = ProtectedDirectory::open_or_create(&path, guard).unwrap();
+    drop(store.create_new("authority", b"fixture").unwrap());
+    std::fs::copy(std::env::current_exe().unwrap(), path.join("server.exe")).unwrap();
+    let binding = ServerBinding::new(
+        &store,
+        path.join("server.exe"),
+        "NixOS".into(),
+        "Empty".into(),
+        1,
+        "authority",
+    )
+    .unwrap();
+    assert!(ServerOwner::spawn(
+        &store,
+        &binding,
+        &["job-report".into(), path.join("ran.txt").into_os_string()]
+    )
+    .is_err());
+    assert!(!path.join("ran.txt").exists());
+    assert!(matches!(
+        store.read("ownership.json", 16384),
+        Err(StorageError::Missing)
+    ));
+    drop(binding);
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+    print!("safe-failure");
 }
 
 fn pipe_private() {

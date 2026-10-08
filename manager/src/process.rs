@@ -64,7 +64,7 @@ impl ProcessRunner {
 #[cfg(not(windows))]
 compile_error!("The manager currently supports native Windows only");
 #[cfg(windows)]
-mod native {
+pub(crate) mod native {
     use super::*;
     use std::{
         ffi::{c_void, OsStr},
@@ -110,7 +110,7 @@ mod native {
         Ok(v)
     }
     /// Standard minimal Windows quoting. Bare switches are required by installed WSL.
-    fn argument(s: &OsStr, out: &mut Vec<u16>) -> Result<(), ProcessError> {
+    pub(crate) fn argument(s: &OsStr, out: &mut Vec<u16>) -> Result<(), ProcessError> {
         let s: Vec<u16> = s.encode_wide().collect();
         if s.contains(&0) {
             return Err(ProcessError::InvalidCommand);
