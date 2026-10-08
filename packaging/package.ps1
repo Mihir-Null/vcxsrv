@@ -48,7 +48,7 @@ $version=$managerMeta.version+'-dev.'+$managerMeta.sourceCommit.Substring(0,9)
 '# VcXsrv WSL managed product resources; no legacy application launch menu.'|Set-Content -LiteralPath (Join-OwnedPath $Output 'system.XWinrc')
 $null=New-Item -ItemType Directory -Path (Join-OwnedPath $Output 'tools')
 foreach($name in @('install.ps1','uninstall.ps1','Package.psm1')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-OwnedPath $Output ('tools/'+$name))}
-foreach($name in @('BUILD.md','OPERATIONS.md','READING-ORDER.md')){Copy-Item -LiteralPath (Join-OwnedPath $SourceRoot ('docs/'+$name)) -Destination (Join-OwnedPath $Output $name)}
+foreach($name in @('BUILD.md','OPERATIONS.md','READING-ORDER.md','VALIDATION.md')){Copy-Item -LiteralPath (Join-OwnedPath $SourceRoot ('docs/'+$name)) -Destination (Join-OwnedPath $Output $name)}
 Copy-Item -LiteralPath (Join-OwnedPath $ServerStage 'build-manifest.json') -Destination (Join-OwnedPath $Output 'server-build-manifest.json')
 Copy-Item -LiteralPath (Join-OwnedPath $ServerStage 'source-correction.patch') -Destination (Join-OwnedPath $Output 'source-correction.patch')
 Copy-Item -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName($ManagerBinary)) 'manager-build-manifest.json') -Destination (Join-OwnedPath $Output 'manager-build-manifest.json')
