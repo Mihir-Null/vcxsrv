@@ -477,6 +477,115 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("SECRET", stdout.getvalue() + stderr.getvalue())
         self.assertEqual(json.loads(stdout.getvalue())["code"], "unsafe_path")
 
+    def launch_with_replies(self, replies, repeat=False):
+        """Run real launch/probe/exec against a private test Unix listener."""
+        import subprocess
+        import sys
+
+        with self.runtime() as runtime:
+            runtime.store_authority(GUEST)
+            path = runtime.path / "X1"
+            server = socket.socket(socket.AF_UNIX)
+            server.bind(str(path))
+            path.chmod(0o600)
+            server.listen(4)
+            server.settimeout(0.05)
+            stopping = threading.Event()
+            requests = []
+            errors = []
+
+            def serve():
+                try:
+                    index = 0
+                    while not stopping.is_set() and (repeat or index < len(replies)):
+                        try:
+                            client, _ = server.accept()
+                        except TimeoutError:
+                            continue
+                        with client:
+                            client.settimeout(1)
+                            requests.append(client.recv(4096))
+                            reply = replies[index % len(replies)]
+                            if reply is not None:
+                                client.sendall(reply)
+                        index += 1
+                except OSError as error:
+                    errors.append(type(error).__name__)
+
+            worker = threading.Thread(target=serve)
+            worker.start()
+            code = (
+                "import helper,os,pathlib,sys,json,pwd\n"
+                "root=pathlib.Path(" + repr(str(self.root)) + ")\n"
+                "helper.open_runtime=lambda config,create=False:helper.Runtime(os.open(root,os.O_RDONLY|os.O_DIRECTORY),root,os.getuid(),create)\n"
+                "config=helper.Config(pwd.getpwuid(os.getuid()).pw_name,1,106001,'/bin/false','/bin/false','/bin/false')\n"
+                "try:\n helper.launch(config,[sys.executable,"
+                + repr(str(HERE / "launch_fixture.py"))
+                + ",'snow 雪','literal;$(none)'])\n"
+                "except helper.Failure as error:\n print(json.dumps({'error':error.code}));sys.exit(helper.ERRORS[error.code])\n"
+            )
+            started = time.monotonic()
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-c", code],
+                    input=b"",
+                    capture_output=True,
+                    env=dict(os.environ, PYTHONPATH=str(HERE)),
+                    timeout=12,
+                    check=False,
+                )
+            finally:
+                stopping.set()
+                worker.join(timeout=2)
+                server.close()
+            self.assertEqual(errors, [])
+            self.assertFalse(worker.is_alive())
+            return result, len(requests), time.monotonic() - started
+
+    def test_launch_retries_real_transport_drop_then_authenticates_and_execs(self):
+        ready = b"\x01\x00\x0b\x00\x00\x00\x08\x00" + bytes(32)
+        result, attempts, elapsed = self.launch_with_replies([None, ready])
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(attempts, 2)
+        self.assertLess(elapsed, 2)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["args"], ["snow 雪", "literal;$(none)"])
+        self.assertEqual(data["stdin"], "")
+        self.assertEqual(
+            data["env"]["DISPLAY"], "unix:" + str(self.root / "vcxsrv-wsl/X1")
+        )
+
+    def test_launch_repeated_transport_drop_stops_at_total_ten_second_deadline(self):
+        result, attempts, elapsed = self.launch_with_replies([None], repeat=True)
+        self.assertEqual(result.returncode, 8, result.stdout)
+        self.assertEqual(json.loads(result.stdout), {"error": "deadline"})
+        self.assertGreater(attempts, 2)
+        self.assertGreaterEqual(elapsed, 9.9)
+        self.assertLess(elapsed, 11)
+
+    def test_launch_does_not_retry_explicit_authentication_rejection(self):
+        rejected = b"\x00\x04\x0b\x00\x00\x00\x01\x00NOPE"
+        result, attempts, elapsed = self.launch_with_replies([rejected])
+        self.assertEqual(result.returncode, 7)
+        self.assertEqual(json.loads(result.stdout), {"error": "x11_rejected"})
+        self.assertEqual(attempts, 1)
+        self.assertLess(elapsed, 2)
+
+    def test_launch_does_not_retry_malformed_setup_reply(self):
+        malformed = b"\x01\x00\x0b\x00\x00\x00\x00\x00"
+        result, attempts, elapsed = self.launch_with_replies([malformed])
+        self.assertEqual(result.returncode, 7)
+        self.assertEqual(json.loads(result.stdout), {"error": "x11_protocol"})
+        self.assertEqual(attempts, 1)
+        self.assertLess(elapsed, 2)
+
+    def test_launch_does_not_retry_truncated_setup_header(self):
+        result, attempts, elapsed = self.launch_with_replies([b"\x01"])
+        self.assertEqual(result.returncode, 7)
+        self.assertEqual(json.loads(result.stdout), {"error": "x11_protocol"})
+        self.assertEqual(attempts, 1)
+        self.assertLess(elapsed, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

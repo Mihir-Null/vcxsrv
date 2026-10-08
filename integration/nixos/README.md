@@ -74,7 +74,9 @@ releases the lock before starting the declarative relay through systemctl.
 
 Launch sets `DISPLAY=unix:<runtime>/vcxsrv-wsl/X<display>` and
 `XAUTHORITY=<runtime>/vcxsrv-wsl/authority`, removes inherited WAYLAND_DISPLAY,
-connects stdin to `/dev/null`, and execs literal argv. `emacsclient` resolves to
+connects stdin to `/dev/null`, and execs literal argv. Transport EOF/reset before
+any setup-reply bytes is retryable within the same total10s readiness deadline;
+partial/malformed replies and explicit authentication rejection fail immediately. `emacsclient` resolves to
 the configured X11 package. Other programs resolve as an executable with no
 shell interpolation. Launch target stdout/stderr are application output.
 

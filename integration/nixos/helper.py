@@ -379,13 +379,22 @@ def open_runtime(config, create=False):
                 os.close(fd)
 
 
-def receive_exact(stream, size, deadline):
+def receive_exact(stream, size, deadline, startup=False):
     data = bytearray()
     while len(data) < size:
         stream.settimeout(remaining(deadline))
-        block = stream.recv(size - len(data))
+        try:
+            block = stream.recv(size - len(data))
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            raise Failure(
+                "relay_unavailable" if startup and not data else "x11_protocol"
+            ) from None
         if not block:
-            raise Failure("x11_protocol")
+            # A listening relay can drop the connection before its upstream
+            # starts. Any partial setup reply remains a protocol failure.
+            raise Failure(
+                "relay_unavailable" if startup and not data else "x11_protocol"
+            )
         data.extend(block)
     return bytes(data)
 
@@ -397,8 +406,11 @@ def handshake(stream, cookie, deadline):
     packet += name + bytes((-len(name)) % 4) + auth + bytes((-len(auth)) % 4)
     try:
         stream.settimeout(remaining(deadline))
-        stream.sendall(packet)
-        head = receive_exact(stream, 8, deadline)
+        try:
+            stream.sendall(packet)
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            raise Failure("relay_unavailable") from None
+        head = receive_exact(stream, 8, deadline, startup=True)
         status, reason_length, major, minor, units = struct.unpack("<BBHHH", head)
         if major != 11 or minor != 0 or units * 4 > 65536:
             raise Failure("x11_protocol")
