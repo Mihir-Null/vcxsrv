@@ -170,3 +170,42 @@ fn synthetic_creation_mismatch_preserves_live_unrelated_child_and_unchanged_remo
     drop(store);
     std::fs::remove_dir_all(path).unwrap();
 }
+
+#[test]
+fn stopped_inspection_is_read_only_and_live_refusal_preserves_every_identity() {
+    let (path, store, config, mut child, _) = setup("inspection");
+    let record = store.read("ownership.json", 16384).unwrap();
+    let original = record.bytes().to_vec();
+    let id = record.identity();
+    drop(record);
+    let auth = store.read("authority", 64).unwrap();
+    let authbytes = auth.bytes().to_vec();
+    let authid = auth.identity();
+    drop(auth);
+    assert!(vcxsrv_wsl_manager::recovery::inspect_stopped_record(
+        &store,
+        &config,
+        Instant::now() + Duration::from_secs(5)
+    )
+    .is_err());
+    child.0.kill().unwrap();
+    child.0.wait().unwrap();
+    let proof = vcxsrv_wsl_manager::recovery::inspect_stopped_record(
+        &store,
+        &config,
+        Instant::now() + Duration::from_secs(5),
+    )
+    .unwrap();
+    assert!(proof.is_some());
+    drop(proof);
+    assert_eq!(
+        store.read("ownership.json", 16384).unwrap().bytes(),
+        original
+    );
+    assert_eq!(store.read("ownership.json", 16384).unwrap().identity(), id);
+    assert_eq!(store.read("authority", 64).unwrap().bytes(), authbytes);
+    assert_eq!(store.read("authority", 64).unwrap().identity(), authid);
+    drop(child);
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}

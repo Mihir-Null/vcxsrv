@@ -4,6 +4,15 @@ use vcxsrv_wsl_manager::{
     tray, worker,
 };
 fn main() -> std::process::ExitCode {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("installation-guard")) {
+        return match vcxsrv_wsl_manager::installation::cli(std::env::args_os().skip(2)) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
     let options = match Options::parse(std::env::args_os().skip(1)) {
         Ok(options) => options,
         Err(error) => {

@@ -14,3 +14,5 @@ pub mod storage;
 pub mod tray;
 pub mod worker;
 pub mod wsl;
+
+pub mod installation;

@@ -35,16 +35,39 @@ fn budget(deadline: Instant) -> Result<(), RecoveryError> {
         Err(RecoveryError::Deadline)
     }
 }
+/// Read-only proof retains validated metadata/authority and any process evidence.
+pub struct StoppedRecordProof {
+    pub(crate) record: crate::storage::ProtectedFile,
+    _authority: crate::authority::Authority,
+    _process: Option<std::os::windows::io::OwnedHandle>,
+}
 pub fn retire_stopped_record(
     store: &ProtectedDirectory,
     config: &Config,
     deadline: Instant,
 ) -> Result<RecoveryResult, RecoveryError> {
+    let Some(proof) = inspect_stopped_record(store, config, deadline)? else {
+        return Ok(RecoveryResult::NoRecord);
+    };
+    budget(deadline)?;
+    let identity = proof.record.identity();
+    let bytes = proof.record.bytes().to_vec();
+    drop(proof.record);
+    store
+        .remove_if_unchanged("ownership.json", identity, &bytes)
+        .map_err(RecoveryError::Storage)?;
+    Ok(RecoveryResult::Retired)
+}
+pub fn inspect_stopped_record(
+    store: &ProtectedDirectory,
+    config: &Config,
+    deadline: Instant,
+) -> Result<Option<StoppedRecordProof>, RecoveryError> {
     store.require_guard().map_err(RecoveryError::Storage)?;
     budget(deadline)?;
     let record = match store.read("ownership.json", 16384) {
         Ok(file) => file,
-        Err(StorageError::Missing) => return Ok(RecoveryResult::NoRecord),
+        Err(StorageError::Missing) => return Ok(None),
         Err(e) => return Err(RecoveryError::Storage(e)),
     };
     let expected: ServerIdentity =
@@ -83,15 +106,11 @@ pub fn retire_stopped_record(
     }
     let evidence = stopped_process(&expected, deadline)?;
     budget(deadline)?;
-    let identity = record.identity();
-    let bytes = record.bytes().to_vec();
-    drop(record);
-    store
-        .remove_if_unchanged("ownership.json", identity, &bytes)
-        .map_err(RecoveryError::Storage)?;
-    drop(evidence);
-    drop(authority);
-    Ok(RecoveryResult::Retired)
+    Ok(Some(StoppedRecordProof {
+        record,
+        _authority: authority,
+        _process: evidence,
+    }))
 }
 /// The optional retained handle pins a reused/signaled kernel object through deletion.
 fn stopped_process(

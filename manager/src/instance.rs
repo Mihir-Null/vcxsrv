@@ -32,6 +32,9 @@ impl InstanceGuard {
         }
         Ok(Self { _handle: h, sid })
     }
+    pub(crate) fn raw_handle(&self) -> usize {
+        raw(&self._handle) as usize
+    }
     pub fn sid(&self) -> &str {
         &self.sid
     }
