@@ -16,6 +16,7 @@ pub enum Action {
     Refresh,
     Detach,
     StopServerConfirmed,
+    RecoverStoppedRecord,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation {
@@ -26,6 +27,7 @@ pub enum Operation {
     Launch,
     Detach,
     StopOwnedServer,
+    RecoverStoppedRecord,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Effect {
@@ -53,6 +55,7 @@ pub enum Outcome {
     Launched,
     Stopped,
     Detached,
+    Recovered,
     Retryable,
     Failed(Failure),
 }
@@ -113,6 +116,7 @@ impl Controller {
                 Operation::Detach
             }
             Action::StopServerConfirmed => Operation::StopOwnedServer,
+            Action::RecoverStoppedRecord => Operation::RecoverStoppedRecord,
             _ => Operation::EnsureServer,
         };
         self.state = if matches!(action, Action::Detach) {
@@ -185,7 +189,8 @@ impl Controller {
                 None
             }
             (Operation::StopOwnedServer, Outcome::Stopped)
-            | (Operation::Detach, Outcome::Detached) => {
+            | (Operation::Detach, Outcome::Detached)
+            | (Operation::RecoverStoppedRecord, Outcome::Recovered) => {
                 self.active = None;
                 self.state = State::WaitingForWsl;
                 None

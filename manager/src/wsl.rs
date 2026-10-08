@@ -42,7 +42,7 @@ impl WslClient {
         decode_running_distros(&output.stdout)
     }
 }
-fn system_wsl() -> Result<PathBuf, WslError> {
+pub(crate) fn system_wsl() -> Result<PathBuf, WslError> {
     use std::{ffi::OsString, os::windows::ffi::OsStringExt};
     use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
     // Initial supported manager is native x64, so System32 is not WOW64 redirected.

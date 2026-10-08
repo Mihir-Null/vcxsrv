@@ -131,12 +131,19 @@ impl ProtectedDirectory {
         }
     }
     pub fn open_or_create(path: &Path, guard: Arc<InstanceGuard>) -> Result<Self, StorageError> {
-        Self::open(path, Some(guard))
+        Self::open(path, Some(guard), true)
     }
     pub fn inspect(path: &Path) -> Result<Self, StorageError> {
-        Self::open(path, None)
+        Self::open(path, None, false)
     }
-    fn open(path: &Path, guard: Option<Arc<InstanceGuard>>) -> Result<Self, StorageError> {
+    pub fn open_existing(path: &Path, guard: Arc<InstanceGuard>) -> Result<Self, StorageError> {
+        Self::open(path, Some(guard), false)
+    }
+    fn open(
+        path: &Path,
+        guard: Option<Arc<InstanceGuard>>,
+        create: bool,
+    ) -> Result<Self, StorageError> {
         let c: Vec<_> = path.components().collect();
         if c.len() < 3
             || !matches!(c[0],Component::Prefix(p) if matches!(p.kind(),Prefix::Disk(_)))
@@ -162,7 +169,7 @@ impl ProtectedDirectory {
         ancestors.push(root);
         for (i, component) in c.iter().enumerate().skip(2) {
             p.push(component);
-            if i == c.len() - 1 && guard.is_some() {
+            if i == c.len() - 1 && create {
                 let w = wide(p.as_os_str())?;
                 if unsafe { CreateDirectoryW(w.as_ptr(), &security.attributes()) } == 0
                     && unsafe { GetLastError() } != ERROR_ALREADY_EXISTS
@@ -334,6 +341,49 @@ impl ProtectedDirectory {
         // Rename is the commit point: this handle now names the destination.
         // A failed final check reports uncertainty but must never delete it.
         validate_published(&file)?;
+        Ok(())
+    }
+    /// Delete only the classified record, preserving both replacement and same-file rewrites.
+    pub fn remove_if_unchanged(
+        &self,
+        name: &str,
+        expected: FileIdentity,
+        expected_bytes: &[u8],
+    ) -> Result<(), StorageError> {
+        self.require_guard()?;
+        filename(name)?;
+        if expected_bytes.len() > 16384 {
+            return Err(StorageError::TooLarge);
+        }
+        let mut file = open_file(
+            &self.path.join(name),
+            GENERIC_READ | DELETE | READ_CONTROL,
+            OPEN_EXISTING,
+            None,
+        )?;
+        if self.validate(&file)? != expected {
+            return Err(StorageError::OwnershipMismatch);
+        }
+        let mut actual = Vec::new();
+        (&mut file)
+            .take(expected_bytes.len().saturating_add(1) as u64)
+            .read_to_end(&mut actual)
+            .map_err(io_error)?;
+        if actual != expected_bytes {
+            return Err(StorageError::OwnershipMismatch);
+        }
+        let info = FILE_DISPOSITION_INFO { DeleteFile: true };
+        if unsafe {
+            SetFileInformationByHandle(
+                file.as_raw_handle(),
+                FileDispositionInfo,
+                (&info as *const FILE_DISPOSITION_INFO).cast(),
+                size_of_val(&info) as u32,
+            )
+        } == 0
+        {
+            return Err(last());
+        }
         Ok(())
     }
     pub fn remove(&self, name: &str, expected: FileIdentity) -> Result<(), StorageError> {

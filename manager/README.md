@@ -1,7 +1,6 @@
 # Native manager core
 
-Tasks 4–5 provide a Windows-native Rust library for commands, protected storage,
-ownership and pure orchestration. Authority encoding, worker wiring and tray UI belong to Task 6.
+Tasks 4–6 provide a Windows-native manager for commands, protected storage, ownership, authenticated helper orchestration and a native tray UI.
 
 - `Config::defaults_for(manager_exe)` locates `vcxsrv.exe` next to the absolute manager
   executable. `Config::from_json` applies those defaults to omitted fields, requires
@@ -127,3 +126,102 @@ cargo test --manifest-path manager/Cargo.toml --locked --test lifecycle_native -
 The two lifetime tests and two job diagnostics are ignored in ordinary harness runs.
 The lifetime fixture tests normal process exit and `process::exit` without Rust
 destructors; it does not inject a Windows exception or claim cross-session survival.
+
+## Native tray and isolated diagnostics (Task 6)
+
+The product binary is `vcxsrv-wsl-manager.exe`. `--tray` (also the default) creates a
+hidden native top-level window, starts its serialized worker and passively attempts
+to start/recover the configured companion. `vcxsrv.exe` is beside the manager by
+default. Missing companion/helper paths produce fixed actionable errors; a running
+manager or server process is never sufficient for Ready.
+
+```powershell
+# Parent directory must already exist; the final private directory must be new,
+# or already have the exact current-user-only protected security.
+.\vcxsrv-wsl-manager.exe --tray --state-dir C:\Users\walnu\Documents\VcXsrvTest
+.\vcxsrv-wsl-manager.exe doctor --json --state-dir C:\Users\walnu\Documents\VcXsrvTest
+.\vcxsrv-wsl-manager.exe recover-stopped --state-dir C:\Users\walnu\Documents\VcXsrvTest
+```
+
+The default state directory is Windows KnownFolder LocalAppData + `VcXsrvWSL`.
+`--state-dir ABSOLUTE_DIR` isolates config, authority, ownership and logs from
+installed state. `--config ABSOLUTE_FILE` selects another config, whose parent and
+file receive the same protected storage checks. An explicit missing/unsafe config
+fails instead of silently using defaults. The first tray run creates protected
+`config.json` with the existing defaults; edit it through Open config and restart
+the manager. `doctor --json` is read-only, works alongside the tray, creates no
+state and reports `last_authenticated_state: null`: it does not run a guest probe
+or infer Ready from host/configuration observations. Protected-file validation
+never silently repairs an existing directory or file. One production manager per
+actual TokenUser SID across sessions still applies even with isolated paths.
+
+Tray actions: Start server, Launch Emacs, Refresh connection, Diagnostics, Open
+config, Open logs, Start manager at sign-in, Recover stopped server record, Stop
+server and Exit manager. Stop displays a separate default-No confirmation. Exit
+cancels short helpers, rejects new actions and detaches; it never means Stop. The
+window does not wait for its worker on exit. Startup is off until explicitly
+enabled through the tray; it changes only the current-user `VcXsrvWSL` Run entry,
+retains explicit config/state arguments and refuses an entry from another install.
+
+Authority uses BCryptGenRandom and one canonical FamilyWild Xauthority record,
+MIT-MAGIC-COOKIE-1, configured display0..99 and exactly16 cookie bytes. Parsing
+rejects truncation, noncanonical selectors, wrong family/address/name/data lengths,
+additional records and trailing bytes. The authority shares Task5's protected
+atomic storage, remains locked throughout owned server lifetime and has no
+Debug/Display implementation. An existing ownership record requires an existing
+valid credential; no crash/restart recovery recreates or rotates it.
+
+The literal system `wsl.exe` argv selects only the configured distro/user and
+executes `/run/current-system/sw/bin/vcxsrv-wsl` with `bootstrap`, `probe` or
+`launch -- PROGRAM ARG...`. Bootstrap sends bounded binary stdin then EOF; launch
+arguments are never shell text. Strict bounded v1 success JSON must match verb,
+display and derived port. Bootstrap cannot become Ready. Only the authenticated
+normal Unix-relay probe establishes Ready, which is labelled the last authenticated
+observation. Launch completion is distinct from that probe; application output is
+never parsed as helper JSON or logged. Every connection/launch effect shares one
+absolute15s attempt deadline; timeout has no success claim and does not automatically
+retry Launch. Killing/timing out Windows wsl.exe does not prove an already-started
+guest application was undone; the manager never terminates WSL or arbitrary guest
+processes to compensate.
+
+A bounded typed queue accepts one pending operation, coalesces duplicate clicks and
+serializes lifecycle mutation. The idle worker checks the retained server handle.
+While Waiting/Ready, selected-distro membership is a host-only list operation with
+5s-to30s backoff, including at most5s per query. An observed guest stop invalidates
+Ready; a later appearance may connect/bootstrap passively, without waking it.
+Ready schedules no guest probes. A same-name stop/restart entirely between host
+observations cannot be detected; explicit Launch/Refresh performs a fresh probe.
+TaskbarCreated restores both the tray icon and its notification version without
+restarting Explorer.
+
+### Explicit stopped-record recovery
+
+Ordinary Start retains the existing fail-closed stale-metadata rule. After a Windows
+reboot or verified server exit, **Recover stopped server record** or `recover-stopped`
+can retire only an unchanged protected ownership record after positive native stopped
+evidence. It requires current SID, directory/config scope and valid unchanged
+canonical authority. A matching live process or unknown/query/snapshot failure is
+refused. A creation-time mismatch or checked complete snapshot proving the recorded
+PID absent establishes only that the original process is gone; it never authorizes
+adoption or termination of a different process. A syntactically valid old executable
+path may be absent after upgrade; it is never opened/executed by retirement. Authority
+bytes and file identity stay unchanged. Start server is a separate subsequent action.
+
+`remove_if_unchanged` protects against both replacing a classified metadata file and
+rewriting its bytes without changing file identity. Recovery holds the production
+instance guard and serializes with live lifecycle work. A missing state directory
+or missing record causes no credential/config creation. `recover-stopped` refuses
+while the tray's production instance guard is active; use the tray action instead.
+
+### Verification scope
+
+Default `cargo test --offline` includes byte-level authority/helper/queue/controller
+checks, native stopped/live/absent-process recovery, protected compare/remove, and
+an actual isolated manager executable tray smoke. That smoke verifies top-level
+window responsiveness, missing companion Error, actual duplicate-instance rejection,
+concurrent read-only doctor, synthetic TaskbarCreated restoration and prompt exit;
+it invokes no WSL and creates no authority/server. The desktop-only Task5 persistent
+owner fixtures remain explicitly ignored in normal harness runs. Full guest auth,
+owned-server tray detach/crash, sign-out, sleep and application/WSL acceptance belong
+to the separately authorized machine acceptance. A synthetic creation mismatch test
+is not evidence of observed Windows PID reuse.

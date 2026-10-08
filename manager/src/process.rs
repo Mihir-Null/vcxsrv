@@ -33,6 +33,7 @@ pub enum ProcessError {
     Nonzero(u32),
     Native(u32),
     InputClosed,
+    Cancelled,
 }
 impl fmt::Display for ProcessError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -58,7 +59,22 @@ impl ProcessRunner {
         spec: &CommandSpec,
         stdin: Option<&[u8]>,
     ) -> Result<CommandOutput, ProcessError> {
-        native::run(spec, stdin.unwrap_or_default(), self.output_limit)
+        native::run(spec, stdin.unwrap_or_default(), self.output_limit, None)
+    }
+}
+impl ProcessRunner {
+    pub fn run_cancellable(
+        &self,
+        spec: &CommandSpec,
+        stdin: Option<&[u8]>,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<CommandOutput, ProcessError> {
+        native::run(
+            spec,
+            stdin.unwrap_or_default(),
+            self.output_limit,
+            Some(cancel),
+        )
     }
 }
 #[cfg(not(windows))]
@@ -468,7 +484,11 @@ pub(crate) mod native {
         spec: &CommandSpec,
         input: &[u8],
         limit: usize,
+        cancel: Option<&std::sync::atomic::AtomicBool>,
     ) -> Result<CommandOutput, ProcessError> {
+        if cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err(ProcessError::Cancelled);
+        }
         let deadline = Instant::now()
             .checked_add(spec.timeout)
             .ok_or(ProcessError::InvalidCommand)?;
@@ -512,6 +532,9 @@ pub(crate) mod native {
             si.StartupInfo.hStdError = cerr.0;
             si.lpAttributeList = attrs.pointer();
             let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+            if cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Acquire)) {
+                return Err(ProcessError::Cancelled);
+            }
             if CreateProcessW(
                 app.as_ptr(),
                 argv.as_mut_ptr(),
@@ -538,6 +561,9 @@ pub(crate) mod native {
                 TerminateProcess(process.0, 1);
                 return Err(e);
             }
+            if cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Acquire)) {
+                return Err(ProcessError::Cancelled);
+            }
             if ResumeThread(thread.0) == u32::MAX {
                 let e = last();
                 TerminateProcess(process.0, 1);
@@ -554,6 +580,9 @@ pub(crate) mod native {
         let mut input_closed = false;
         let mut captured = 0usize;
         loop {
+            if cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Acquire)) {
+                return Err(ProcessError::Cancelled);
+            }
             if Instant::now() >= deadline {
                 return Err(ProcessError::Timeout);
             }
