@@ -10,7 +10,7 @@ use crate::{
 use std::{
     ffi::OsString,
     fs::File,
-    io::{Read, Write},
+    io::{BufRead, Read, Write},
     path::{Component, Path, PathBuf, Prefix},
     sync::{mpsc, Arc},
     time::{Duration, Instant},
@@ -64,6 +64,7 @@ fn normalized(path: &Path) -> String {
         .strip_prefix(r"\\?\")
         .unwrap_or(&path.to_string_lossy())
         .replace('/', "\\")
+        .trim_end_matches('\\')
         .to_lowercase()
 }
 fn live_install_process(root: &Path, deadline: Instant) -> Result<(), &'static str> {
@@ -141,6 +142,18 @@ pub fn serve(root: &Path, state: &Path, scope: &str) -> Result<(), &'static str>
     } else {
         Config::defaults_for(&target).map_err(|_| "Invalid installation defaults")?
     };
+    let companion = root.join("vcxsrv.exe");
+    let components: Vec<_> = config.server_path.components().collect();
+    if components.len() < 3
+        || !matches!(components[0],Component::Prefix(p) if matches!(p.kind(),Prefix::Disk(_)|Prefix::VerbatimDisk(_)))
+        || components[1] != Component::RootDir
+        || components[2..]
+            .iter()
+            .any(|p| !matches!(p, Component::Normal(_)))
+        || normalized(&config.server_path) != normalized(&companion)
+    {
+        return Err("Configured companion does not belong to destination installation; preserved");
+    }
     let proof=directory.as_ref().map(|d|inspect_stopped_record(d,&config,deadline)).transpose().map_err(|_|"Owned server is live or stopped evidence is unsafe; use confirmed Stop or explicit recover-stopped")?.flatten();
     if let Some(proof) = proof.as_ref() {
         let record: ServerIdentity =
@@ -158,8 +171,9 @@ pub fn serve(root: &Path, state: &Path, scope: &str) -> Result<(), &'static str>
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
         let result = std::io::stdin()
+            .lock()
             .take(17)
-            .read_to_end(&mut bytes)
+            .read_until(b'\n', &mut bytes)
             .map(|_| bytes);
         let _ = sender.send(result);
     });
@@ -176,7 +190,7 @@ pub fn serve(root: &Path, state: &Path, scope: &str) -> Result<(), &'static str>
         .map_err(|_| "Installer handshake timed out")?
         .map_err(|_| "Installer handshake input failed")?;
     if bytes != b"RELEASE\n" && bytes != b"RELEASE\r\n" {
-        return Err("Installer handshake requires fixed RELEASE and EOF");
+        return Err("Installer handshake requires a complete fixed RELEASE line");
     }
     Ok(())
 }

@@ -23,7 +23,7 @@ function Start-Guard([string]$Target=$install) {
 function Wait-Guard($P) {if(!$P.WaitForExit(17000)){throw 'Guard exceeded bounded protocol'};$P.ExitCode}
 function Assert($Condition,[string]$Message){if(!$Condition){throw $Message}}
 $p=Start-Guard
-$p.StandardInput.WriteLine('RELEASE');$p.StandardInput.Close()
+$p.StandardInput.WriteLine('RELEASE');$p.StandardInput.Flush()
 Assert ((Wait-Guard $p) -eq 0) 'Expected successful native guard protocol'
 $r=$p.StandardOutput.ReadToEnd()|ConvertFrom-Json
 Assert ($r.ready -and $r.version -eq 1 -and $r.mutex_handle) 'No validated guard reply'
@@ -48,11 +48,12 @@ $local=$null;$remote=[IntPtr]::new([Convert]::ToInt64($reply.mutex_handle.Substr
 Assert ([GuardFixtureHandles]::DuplicateHandle($p.SafeHandle,$remote,[GuardFixtureHandles]::GetCurrentProcess(),[ref]$local,0,$false,2)) 'Successful duplicate failed'
 $flags=[uint32]0
 Assert ([GuardFixtureHandles]::GetHandleInformation($local,[ref]$flags) -and ($flags -band 1) -eq 0) 'Guard was inheritable'
-$p.StandardInput.WriteLine('RELEASE');$p.StandardInput.Close()
+$p.StandardInput.WriteLine('RELEASE');$p.StandardInput.Flush()
 Assert ((Wait-Guard $p) -eq 0) 'Successful RELEASE failed';$p.Dispose()
 try{$p=Start-Guard;$p.StandardInput.Close();Assert ((Wait-Guard $p) -ne 0) 'Successful handoff lost singleton';$p.Dispose()}finally{$local.Dispose()}
-$p=Start-Guard;$p.StandardInput.WriteLine('RELEASE');$p.StandardInput.Close();Assert ((Wait-Guard $p) -eq 0) 'Final disposal leaked singleton';$p.Dispose()
+$p=Start-Guard;$p.StandardInput.WriteLine('RELEASE');$p.StandardInput.Flush();Assert ((Wait-Guard $p) -eq 0) 'Final disposal leaked singleton';$p.Dispose()
 $p=Start-Guard ($install+'\..\bad');$p.StandardInput.Close();Assert ((Wait-Guard $p) -ne 0) 'Traversal root accepted';$p.Dispose()
 $p=Start-Guard;$line=$p.StandardOutput.ReadLine();Assert ([bool]$line) 'Expected timeout readiness'
 Assert ((Wait-Guard $p) -ne 0) 'Missing RELEASE did not time out';$p.StandardInput.Close();$p.Dispose()
 'PASS native fixed protocol/no-create/invalid-input/crash-after-duplicate/success-handoff/release/path rejection'
+
