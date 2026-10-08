@@ -231,15 +231,22 @@ impl ProtectedDirectory {
         })
     }
     pub fn create_new(&self, name: &str, bytes: &[u8]) -> Result<ProtectedFile, StorageError> {
-        self.publish(name, bytes, false)?;
+        self.publish(name, bytes, false, |file| self.validate(file))?;
         self.read(name, bytes.len())
     }
     /// Atomic replacement under the lifetime instance guard. Existing destinations must
     /// already be safe; an unsafe object is never repaired or overwritten.
+    /// Final validation can fail after commit; the published file is preserved for recovery.
     pub fn replace(&self, name: &str, bytes: &[u8]) -> Result<(), StorageError> {
-        self.publish(name, bytes, true)
+        self.publish(name, bytes, true, |file| self.validate(file))
     }
-    fn publish(&self, name: &str, bytes: &[u8], replace: bool) -> Result<(), StorageError> {
+    fn publish(
+        &self,
+        name: &str,
+        bytes: &[u8],
+        replace: bool,
+        validate_published: impl FnOnce(&File) -> Result<FileIdentity, StorageError>,
+    ) -> Result<(), StorageError> {
         self.require_guard()?;
         if bytes.len() > 1024 * 1024 {
             return Err(StorageError::TooLarge);
@@ -310,7 +317,6 @@ impl ProtectedDirectory {
                     return Err(last());
                 }
             }
-            self.validate(&file)?;
             Ok(())
         })();
         if result.is_err() {
@@ -324,7 +330,11 @@ impl ProtectedDirectory {
                 );
             }
         }
-        result
+        result?;
+        // Rename is the commit point: this handle now names the destination.
+        // A failed final check reports uncertainty but must never delete it.
+        validate_published(&file)?;
+        Ok(())
     }
     pub fn remove(&self, name: &str, expected: FileIdentity) -> Result<(), StorageError> {
         self.require_guard()?;
@@ -351,5 +361,48 @@ impl ProtectedDirectory {
             return Err(last());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+
+    #[test]
+    fn post_rename_validation_error_preserves_committed_destination() {
+        for replace in [false, true] {
+            let scope = format!("post-publish-{}-{replace}", std::process::id());
+            let path = std::env::temp_dir().join(&scope);
+            let guard = Arc::new(InstanceGuard::acquire(&scope).unwrap());
+            let directory = ProtectedDirectory::open_or_create(&path, guard).unwrap();
+            if replace {
+                drop(directory.create_new("authority", b"original").unwrap());
+            }
+            let mut published_identity = None;
+            let result = directory.publish("authority", b"replacement", replace, |file| {
+                // The real native rename must already have committed before this
+                // injected failure of the final identity/security query.
+                assert_eq!(
+                    std::fs::read(path.join("authority")).unwrap(),
+                    b"replacement"
+                );
+                published_identity = Some(file_identity(file, false).unwrap());
+                Err(StorageError::Native(ERROR_ACCESS_DENIED))
+            });
+            assert_eq!(result, Err(StorageError::Native(ERROR_ACCESS_DENIED)));
+            let observed = directory.read("authority", 64);
+            let preserved = observed.as_ref().is_ok_and(|file| {
+                file.bytes() == b"replacement" && Some(file.identity()) == published_identity
+            });
+            let entries = std::fs::read_dir(&path).unwrap().count();
+            drop(observed);
+            drop(directory);
+            std::fs::remove_dir_all(path).unwrap();
+            assert!(
+                preserved,
+                "post-rename verification failure deleted published data"
+            );
+            assert_eq!(entries, 1, "unpublished temporary file was retained");
+        }
     }
 }
