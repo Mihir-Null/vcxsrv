@@ -80,7 +80,70 @@ Check 'build driver stops immediately when the compiler command fails' {
     Assert ($caught.Exception.Data['ExitCode'] -eq 19) 'driver lost compiler exit code 19'
     Assert (-not (Test-Path (Join-Path $build 'openssl/release64'))) 'driver continued to OpenSSL after compiler failure'
 }
-Write-Host "Tests: 6; failures: $failures"
+Check 'driver invokes a real Python generator from a spaced path in Release mode' {
+    $driver = Join-Path $root 'packaging/build-driver.ps1'
+    $build = Join-Path $work 'generator-source'
+    New-Item -ItemType Directory -Path (Join-Path $build 'tools/mhmake'), (Join-Path $build 'xorg-server/hw/xwin') -Force | Out-Null
+    foreach ($file in @('tools/mhmake/makelex.bat','tools/mhmake/makebison.bat','xorg-server/hw/xwin/doflexbison.bat')) { Set-Content (Join-Path $build $file) '@echo off' }
+    $python = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE 'AppData/Local/Programs/Python') -Filter python.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
+    Assert ($null -ne $python) 'native Python installation needed for generator regression test'
+    $pythonHome = Split-Path $python -Parent
+    $spacedRoot = Join-Path $work 'Program Files Python'
+    New-Item -ItemType Directory -Path $spacedRoot | Out-Null
+    $spacedPython = Join-Path $spacedRoot 'python.exe'
+    Copy-Item -LiteralPath $python -Destination $spacedPython
+    Get-ChildItem -LiteralPath $pythonHome -Filter 'python*.dll' | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $spacedRoot }
+    $compiler = Join-Path $work 'generator-compiler.cmd'
+    $trace = Join-Path $work 'generator-result.txt'
+    $releaseTrace = Join-Path $work 'generator-release.txt'
+    @('@echo off', ('%PYTHON3% -c "print(''spaced-path-generator'')" > "' + $trace + '"'), 'if errorlevel 1 exit /b %errorlevel%', ('echo %DEBUG% > "' + $releaseTrace + '"'), 'exit /b 19') | Set-Content $compiler
+    $vcvars = Join-Path $work 'generator-vcvars.bat'
+    @('@echo off', ('set "PYTHONHOME=' + $pythonHome + '"'), 'exit /b 0') | Set-Content $vcvars
+    $tools = @{vcvarsall=$vcvars; msbuild=$compiler; python=$spacedPython; win_bison=$compiler; win_flex=$compiler; bash=$compiler}
+    $originalDebug = $env:DEBUG
+    $originalPython = $env:PYTHON3
+    $env:DEBUG = '1'
+    try {
+        $caught = $null
+        try { & $driver -BuildRoot $build -Tools $tools -Jobs 1 } catch { $caught = $_ }
+        Assert ((Get-Content -LiteralPath $trace -Raw).Trim() -eq 'spaced-path-generator') 'generator failed to execute Python from the spaced tool path'
+        Assert ((Get-Content -LiteralPath $releaseTrace -Raw).Trim() -eq '0') 'ambient DEBUG=1 leaked into Release build commands'
+        Assert ($caught.Exception.Data['ExitCode'] -eq 19) 'fixture compiler exit was lost after running the generator'
+        Assert ($env:DEBUG -eq '1' -and $env:PYTHON3 -eq $originalPython) 'driver did not restore caller environment'
+    } finally {
+        if ($null -eq $originalDebug) { Remove-Item Env:DEBUG -ErrorAction SilentlyContinue } else { $env:DEBUG = $originalDebug }
+    }
+}
+Check 'driver retains the exact vcvarsall initialization failure code' {
+    $driver = Join-Path $root 'packaging/build-driver.ps1'
+    $vcvars = Join-Path $work 'failing-vcvars.bat'
+    Set-Content $vcvars '@exit /b 37'
+    $caught = $null
+    try { & $driver -BuildRoot $work -Tools @{vcvarsall=$vcvars} -Jobs 1 } catch { $caught = $_ }
+    Assert ($null -ne $caught) 'failed vcvarsall was accepted'
+    Assert ($caught.Exception.Data['ExitCode'] -eq 37) 'vcvarsall exit code 37 was lost'
+}
+Check 'driver imports the real BuildTools x64 environment from its spaced path' {
+    $driver = Join-Path $root 'packaging/build-driver.ps1'
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+    $vsRoot = & $vswhere -latest -products '*' -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    Assert ($null -ne $vsRoot) 'installed BuildTools required for environment regression'
+    $build = Join-Path $work 'real-environment-source'
+    New-Item -ItemType Directory -Path (Join-Path $build 'tools/mhmake'), (Join-Path $build 'xorg-server/hw/xwin') -Force | Out-Null
+    foreach ($file in @('tools/mhmake/makelex.bat','tools/mhmake/makebison.bat','xorg-server/hw/xwin/doflexbison.bat')) { Set-Content (Join-Path $build $file) '@echo off' }
+    $trace = Join-Path $work 'real-vcvars-result.txt'
+    $compiler = Join-Path $work 'real-environment-compiler.cmd'
+    @('@echo off', ('echo %VSCMD_ARG_TGT_ARCH% > "' + $trace + '"'), ('echo %VCToolsInstallDir% >> "' + $trace + '"'), 'exit /b 19') | Set-Content $compiler
+    $tools = @{vcvarsall=(Join-Path $vsRoot 'VC/Auxiliary/Build/vcvarsall.bat'); msbuild=$compiler; python=$compiler; win_bison=$compiler; win_flex=$compiler; bash=$compiler}
+    $caught = $null
+    try { & $driver -BuildRoot $build -Tools $tools -Jobs 1 } catch { $caught = $_ }
+    Assert (Test-Path -LiteralPath $trace) 'real vcvarsall failed before compiler fixture ran'
+    $result = Get-Content -LiteralPath $trace
+    Assert ($result[0].Trim() -eq 'x64') 'real imported environment did not target x64'
+    Assert ($result[1].Trim().StartsWith($vsRoot + '\VC\Tools\MSVC\')) 'real imported environment did not identify installed VC tools'
+    Assert ($caught.Exception.Data['ExitCode'] -eq 19) 'environment succeeded but fixture compiler failure was not retained'
+}
+Write-Host "Tests: 9; failures: $failures"
 # Temporary fixtures stay under the OS temporary directory; never delete repository files.
 $resolvedWork = [IO.Path]::GetFullPath($work)
 $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'

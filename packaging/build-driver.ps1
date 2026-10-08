@@ -10,16 +10,21 @@ try {
         if ($path -and $path -match '["&|<>^%!\r\n]') { throw "Tool path cannot contain cmd metacharacters: $path" }
     }
     $vcvars = $Tools.vcvarsall
-    $environment = & $env:ComSpec /d /s /c "`"`"$vcvars`" x64 >nul && set`""
-    if ($LASTEXITCODE -ne 0) { throw 'vcvarsall failed to initialize the x64 build environment.' }
+    $environment = & $env:ComSpec /d /c "call `"$vcvars`" x64 >nul && set"
+    if ($LASTEXITCODE -ne 0) {
+        $failure = [Exception]::new("vcvarsall failed to initialize the x64 build environment ($LASTEXITCODE).")
+        $failure.Data['ExitCode'] = $LASTEXITCODE
+        throw $failure
+    }
     foreach ($line in $environment) {
         $separator = $line.IndexOf('=')
         if ($separator -gt 0) { [Environment]::SetEnvironmentVariable($line.Substring(0,$separator), $line.Substring($separator+1), 'Process') }
     }
     $env:PATH = (@($Tools.Values | Where-Object { $_ } | ForEach-Object { Split-Path $_ -Parent } | Select-Object -Unique) -join ';') + ';' + $env:PATH
     $env:MHMAKECONF = $BuildRoot
-    $env:PYTHON3 = $Tools.python
+    $env:PYTHON3 = '"' + $Tools.python + '"'
     $env:IS64 = '1'
+    $env:DEBUG = '0'
     $env:CFLAGS = '-FS'
     # Replace machine-specific generator paths only in the isolated snapshot.
     foreach ($relative in @('tools/mhmake/makebison.bat','tools/mhmake/makelex.bat','xorg-server/hw/xwin/doflexbison.bat')) {
@@ -41,7 +46,7 @@ try {
     Invoke-CheckedTool $Tools.nmake @('VC-static')
     Set-Location -LiteralPath $BuildRoot
     Invoke-CheckedTool $Tools.msbuild @('tools/mhmake/mhmakevc10.sln','-t:Rebuild','-p:Configuration=Release','-p:Platform=x64',"-m:$Jobs")
-    Invoke-CheckedTool (Join-Path $BuildRoot 'tools/mhmake/Release64/mhmake.exe') @("-P$Jobs",'-C','xorg-server','MAKESERVER=1')
+    Invoke-CheckedTool (Join-Path $BuildRoot 'tools/mhmake/Release64/mhmake.exe') @("-P$Jobs",'-C','xorg-server','MAKESERVER=1','DEBUG=0')
 } finally {
     Set-Location $originalLocation
     Get-ChildItem Env: | Where-Object { -not $originalEnvironment.ContainsKey($_.Name) } | ForEach-Object { Remove-Item -LiteralPath ('Env:' + $_.Name) }
