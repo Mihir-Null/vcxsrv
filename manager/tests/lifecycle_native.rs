@@ -19,6 +19,72 @@ fn directory(s: &str) -> (PathBuf, ProtectedDirectory) {
     (p, d)
 }
 #[test]
+#[ignore = "requires desktop launch outside restrictive harness job; run explicitly"]
+fn persistent_server_loads_module_relative_mixed_paths_and_installation_cwd() {
+    let (p, d) = directory("bundle-resources");
+    drop(d.create_new("authority", b"fixture-secret").unwrap());
+    let installation = p.join("portable bundle");
+    std::fs::create_dir_all(installation.join("xkbdata/rules")).unwrap();
+    std::fs::write(installation.join("xkbdata/rules/xorg"), b"fixture-rules").unwrap();
+    std::fs::write(installation.join("protocol.txt"), b"fixture-protocol").unwrap();
+    let image = installation.join("server-fixture.exe");
+    std::fs::copy(env!("CARGO_BIN_EXE_process-fixture"), &image).unwrap();
+    let canonical_image = std::fs::canonicalize(&image).unwrap();
+    assert_ne!(std::env::current_dir().unwrap(), installation);
+    let binding = ServerBinding::new(
+        &d,
+        image.clone(),
+        "NixOS".into(),
+        "Empty".into(),
+        1,
+        "authority",
+    )
+    .unwrap();
+    let report = p.join("resources.json");
+    let owner = ServerOwner::spawn(
+        &d,
+        &binding,
+        &["bundle-resources".into(), report.clone().into_os_string()],
+    )
+    .unwrap();
+    let identity = owner.identity().clone();
+    let start = Instant::now();
+    let result = loop {
+        if let Ok(bytes) = std::fs::read(&report) {
+            if let Ok(result) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                break Some(result);
+            }
+        }
+        if start.elapsed() >= Duration::from_secs(5) {
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    // Exercise unchanged canonical recovery, then clean only the retained fixture
+    // process before any assertions about the intentionally failing legacy reads.
+    drop(owner);
+    let mut owner = ServerOwner::recover(&d, &binding).unwrap().unwrap();
+    assert_eq!(owner.identity(), &identity);
+    owner
+        .stop_confirmed(&d, Instant::now() + Duration::from_secs(5))
+        .unwrap();
+    drop(owner);
+    drop(binding);
+    drop(d);
+    std::fs::remove_dir_all(p).unwrap();
+    let result = result.expect("fixture did not publish its resource report");
+    println!(
+        "resource fixture: {result}; retained identity: {}",
+        identity.image.display()
+    );
+    assert_eq!(identity.image, canonical_image);
+    assert_eq!(result["module"], image.to_string_lossy().as_ref());
+    assert_eq!(result["argv0"], image.to_string_lossy().as_ref());
+    assert_eq!(result["cwd"], installation.to_string_lossy().as_ref());
+    assert_eq!(result["mixed_resource"], true);
+    assert_eq!(result["relative_resource"], true);
+}
+#[test]
 fn instance_guard_excludes_duplicates_and_releases_on_drop() {
     let s = scope("mutex");
     let a = InstanceGuard::acquire(&s).unwrap();

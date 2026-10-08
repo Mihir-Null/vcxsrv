@@ -31,6 +31,7 @@ fn main() {
         "exit" => std::process::exit(23),
         "pipe-private" => pipe_private(),
         "owner-start-failure" => owner_start_failure(),
+        "bundle-resources" => bundle_resources(&args.next().unwrap()),
         "owner-exit" => {
             use vcxsrv_wsl_manager::{
                 instance::InstanceGuard,
@@ -95,11 +96,14 @@ fn main() {
             }
         }
         "inheritance" => {
-            use windows_sys::Win32::Foundation::{GetHandleInformation, HANDLE};
+            use windows_sys::Win32::{Foundation::HANDLE, System::Threading::SetEvent};
             let handle = args.next().unwrap().parse::<usize>().unwrap() as HANDLE;
-            let mut flags = 0;
-            let inherited = unsafe { GetHandleInformation(handle, &mut flags) } != 0;
-            print!("{}", if inherited { "inherited" } else { "excluded" });
+            // A reused numeric slot may refer to a different object. Only a signal
+            // observed on the parent's original event proves actual inheritance.
+            unsafe {
+                SetEvent(handle);
+            }
+            print!("signal-attempted");
         }
         "flood" => {
             let a = std::thread::spawn(|| {
@@ -124,6 +128,69 @@ fn main() {
         }
         _ => panic!("unknown fixture mode"),
     }
+}
+fn bundle_resources(report: &str) {
+    use std::{os::windows::ffi::OsStrExt, ptr::null};
+    use windows_sys::Win32::{
+        Foundation::*, Storage::FileSystem::*, System::LibraryLoader::GetModuleFileNameW,
+    };
+    fn reads(path: &str, expected: &[u8]) -> bool {
+        let path: Vec<u16> = std::ffi::OsStr::new(path)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        unsafe {
+            // Direct Win32 I/O deliberately preserves mixed separators. Rust path
+            // normalization could otherwise hide the legacy server's failure.
+            let file = CreateFileW(
+                path.as_ptr(),
+                GENERIC_READ,
+                FILE_SHARE_READ,
+                null(),
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                std::ptr::null_mut(),
+            );
+            if file == INVALID_HANDLE_VALUE {
+                return false;
+            }
+            let mut bytes = vec![0u8; expected.len() + 1];
+            let mut count = 0;
+            let ok = ReadFile(
+                file,
+                bytes.as_mut_ptr(),
+                bytes.len() as u32,
+                &mut count,
+                std::ptr::null_mut(),
+            ) != 0;
+            CloseHandle(file);
+            ok && &bytes[..count as usize] == expected
+        }
+    }
+    let mut module = vec![0u16; 32768];
+    let count = unsafe {
+        GetModuleFileNameW(
+            std::ptr::null_mut(),
+            module.as_mut_ptr(),
+            module.len() as u32,
+        )
+    };
+    assert!(count > 0 && (count as usize) < module.len());
+    let module = String::from_utf16(&module[..count as usize]).unwrap();
+    let parent = std::path::Path::new(&module)
+        .parent()
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let result = serde_json::json!({
+        "module": module,
+        "argv0": std::env::args().next().unwrap(),
+        "cwd": std::env::current_dir().unwrap(),
+        "mixed_resource": reads(&format!("{parent}\\xkbdata/rules/xorg"), b"fixture-rules"),
+        "relative_resource": reads("./protocol.txt", b"fixture-protocol"),
+    });
+    std::fs::write(report, serde_json::to_vec(&result).unwrap()).unwrap();
+    std::thread::sleep(Duration::from_secs(60));
 }
 
 fn owner_start_failure() {

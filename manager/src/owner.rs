@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::{
     ffi::OsString,
     fs::File,
-    os::windows::io::OwnedHandle,
-    path::{Component, PathBuf, Prefix},
+    os::windows::{ffi::OsStrExt, io::OwnedHandle},
+    path::{Component, Path, PathBuf, Prefix},
     ptr::{null, null_mut},
     time::Instant,
 };
@@ -43,6 +43,7 @@ pub struct ServerIdentity {
 }
 pub struct ServerBinding {
     image: PathBuf,
+    launch_image: PathBuf,
     image_file: File,
     installation_file: File,
     authority_file: ProtectedFile,
@@ -52,6 +53,44 @@ pub struct ServerBinding {
     authority: String,
     storage: FileIdentity,
     image_ancestors: Vec<File>,
+}
+// VcXsrv joins module-relative resource names with mixed separators. A verbatim
+// module path disables Win32 separator parsing, so keep a distinct DOS spelling
+// for execution. Never strip an arbitrary device/UNC prefix or reinterpret names
+// whose trailing characters/streams have different ordinary Win32 semantics.
+fn legacy_launch_path(image: &Path) -> Result<PathBuf, OwnershipError> {
+    let mut components = image.components();
+    let drive = match components.next() {
+        Some(Component::Prefix(p)) => match p.kind() {
+            Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => drive,
+            _ => return Err(OwnershipError::Unsafe),
+        },
+        _ => return Err(OwnershipError::Unsafe),
+    };
+    if components.next() != Some(Component::RootDir) {
+        return Err(OwnershipError::Unsafe);
+    }
+    let mut path = PathBuf::from(format!("{}:\\", char::from(drive)));
+    let mut count = 0;
+    for component in components {
+        let Component::Normal(name) = component else {
+            return Err(OwnershipError::Unsafe);
+        };
+        let name_units: Vec<_> = name.encode_wide().collect();
+        if matches!(name_units.last(), Some(32 | 46))
+            || name_units
+                .iter()
+                .any(|c| *c < 32 || [34, 42, 47, 58, 60, 62, 63, 92, 124].contains(c))
+        {
+            return Err(OwnershipError::Unsafe);
+        }
+        path.push(name);
+        count += 1;
+    }
+    if count == 0 {
+        return Err(OwnershipError::Unsafe);
+    }
+    Ok(path)
 }
 impl ServerBinding {
     fn retained_files(&self) -> Result<Vec<File>, OwnershipError> {
@@ -121,9 +160,31 @@ impl ServerBinding {
         file_identity(&installation_file, true)?;
         let image_file = open_file(&image, GENERIC_READ | READ_CONTROL, OPEN_EXISTING, None)?;
         file_identity(&image_file, false)?;
+        let launch_image = legacy_launch_path(&image)?;
+        // Both spellings must resolve to exactly the retained no-follow objects.
+        // The canonical ancestors/image remain locked throughout launch/recovery.
+        let launch_file = open_file(
+            &launch_image,
+            GENERIC_READ | READ_CONTROL,
+            OPEN_EXISTING,
+            None,
+        )?;
+        let launch_directory = open_shared(
+            launch_image.parent().ok_or(OwnershipError::Unsafe)?,
+            GENERIC_READ | READ_CONTROL,
+            OPEN_EXISTING,
+            None,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+        )?;
+        if file_identity(&launch_file, false)? != file_identity(&image_file, false)?
+            || file_identity(&launch_directory, true)? != file_identity(&installation_file, true)?
+        {
+            return Err(OwnershipError::OwnershipMismatch);
+        }
         let authority_file = store.read(authority, 64)?;
         Ok(Self {
             image,
+            launch_image,
             image_file,
             installation_file,
             authority_file,
@@ -251,9 +312,16 @@ impl ServerOwner {
             } else {
                 0
             };
-        let app = wide(binding.image.as_os_str())?;
+        let app = wide(binding.launch_image.as_os_str())?;
+        let cwd = wide(
+            binding
+                .launch_image
+                .parent()
+                .ok_or(OwnershipError::Unsafe)?
+                .as_os_str(),
+        )?;
         let mut argv = Vec::new();
-        crate::process::native::argument(binding.image.as_os_str(), &mut argv)
+        crate::process::native::argument(binding.launch_image.as_os_str(), &mut argv)
             .map_err(|_| OwnershipError::InvalidName)?;
         for arg in args {
             argv.push(32);
@@ -278,7 +346,7 @@ impl ServerOwner {
                 0,
                 flags,
                 null(),
-                null(),
+                cwd.as_ptr(),
                 &info,
                 &mut created,
             )
@@ -393,4 +461,38 @@ impl ServerOwner {
         }
     }
     pub fn detach(self) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_launch_path_accepts_only_unambiguous_local_disk_paths() {
+        for image in [
+            r"C:\portable bundle\vcxsrv.exe",
+            r"\\?\C:\portable bundle\vcxsrv.exe",
+        ] {
+            assert_eq!(
+                legacy_launch_path(std::path::Path::new(image)).unwrap(),
+                PathBuf::from(r"C:\portable bundle\vcxsrv.exe")
+            );
+        }
+        for image in [
+            r"\\server\share\vcxsrv.exe",
+            r"\\?\UNC\server\share\vcxsrv.exe",
+            r"\\.\C:\bundle\vcxsrv.exe",
+            r"\\?\Volume{abc}\bundle\vcxsrv.exe",
+            r"C:vcxsrv.exe",
+            r"\\?\C:\bundle.\vcxsrv.exe",
+            r"\\?\C:\bundle \vcxsrv.exe",
+            r"\\?\C:\bundle\vcxsrv.exe:stream",
+            r"\\?\C:\bundle\..\vcxsrv.exe",
+        ] {
+            assert!(
+                legacy_launch_path(std::path::Path::new(image)).is_err(),
+                "accepted {image}"
+            );
+        }
+    }
 }

@@ -132,10 +132,14 @@ fn unrelated_inheritable_handle_is_excluded() {
     let mut s = spec("inheritance");
     s.args.push((handle as usize).to_string().into());
     let result = ProcessRunner::default().run(&s, None);
+    let signaled = unsafe { WaitForSingleObject(handle, 0) };
     unsafe {
         CloseHandle(handle);
     }
-    assert_eq!(result.unwrap().stdout, b"excluded");
+    assert_eq!(result.unwrap().stdout, b"signal-attempted");
+    // Child handle values can be reused for unrelated kernel objects. The
+    // original event remaining nonsignaled establishes actual object exclusion.
+    assert_eq!(signaled, WAIT_TIMEOUT);
 }
 #[test]
 fn timed_out_descendant_is_terminated_by_isolated_job() {
