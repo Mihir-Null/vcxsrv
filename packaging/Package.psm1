@@ -84,10 +84,39 @@ function Initialize-HandleInterop {
     Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
+using System.IO;
+using System.ComponentModel;
 using Microsoft.Win32.SafeHandles;
 public static class VcXsrvPackagingHandles {
  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool DuplicateHandle(SafeProcessHandle source, IntPtr handle, IntPtr target, out SafeWaitHandle duplicate, uint access, bool inherit, uint options);
  [DllImport("kernel32.dll")] public static extern IntPtr GetCurrentProcess();
+ [StructLayout(LayoutKind.Sequential)] public struct Info { public uint Attributes, CreationLow, CreationHigh, AccessLow, AccessHigh, WriteLow, WriteHigh, Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow; }
+ [DllImport("kernel32.dll",SetLastError=true)] public static extern bool GetFileInformationByHandle(SafeFileHandle file, out Info info);
+ [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] public static extern SafeFileHandle CreateFileW(string path,uint access,uint share,IntPtr security,uint creation,uint flags,IntPtr template);
+ [DllImport("kernel32.dll",SetLastError=true)] public static extern bool SetFileInformationByHandle(SafeFileHandle file,int kind,ref byte disposition,uint size);
+ public static string Identity(SafeFileHandle file) { Info i; if(!GetFileInformationByHandle(file,out i)) throw new Win32Exception(Marshal.GetLastWin32Error()); return i.Volume+":"+i.IndexHigh+":"+i.IndexLow; }
+ public static string Identity(string path) { using(var file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete)) return Identity(file.SafeFileHandle); }
+}
+public sealed class VcXsrvOwnedTemporary : IDisposable {
+ public string Path {get;private set;}
+ public FileStream Stream {get;private set;}
+ private bool committed;
+ private bool disposed;
+ public VcXsrvOwnedTemporary(string path) {
+  Path=path;
+  var handle=VcXsrvPackagingHandles.CreateFileW(path,0xC0010000,5,IntPtr.Zero,1,0x100,IntPtr.Zero);
+  if(handle.IsInvalid){int error=Marshal.GetLastWin32Error();handle.Dispose();throw new Win32Exception(error);}
+  Stream=new FileStream(handle,FileAccess.ReadWrite);
+ }
+ public void Commit(string destination,bool overwrite) {
+  if(VcXsrvPackagingHandles.Identity(Path)!=VcXsrvPackagingHandles.Identity(Stream.SafeFileHandle)) throw new IOException("Temporary pathname no longer names the created file");
+  File.Move(Path,destination,overwrite);committed=true;disposed=true;Stream.Dispose();
+ }
+ public void Dispose() {
+  if(disposed)return;disposed=true;
+  try{if(!committed){byte delete=1;if(!VcXsrvPackagingHandles.SetFileInformationByHandle(Stream.SafeFileHandle,4,ref delete,1))throw new Win32Exception(Marshal.GetLastWin32Error());}}
+  finally{Stream.Dispose();}
+ }
 }
 "@
 }
@@ -132,7 +161,7 @@ function New-GuardStage([string]$Root,$Manifest) {
     @{Root=$p;Files=$e}
 }
 function Get-StartupCommand([string]$Root,[string]$StateRoot) {
-    $args=@((Join-Path $Root 'vcxsrv-wsl-manager.exe'),'--tray','--state-dir',$StateRoot,'--config',(Join-Path $StateRoot 'config.json'))
+    $args=@((Join-Path $Root 'vcxsrv-wsl-manager.exe'),'--tray','--state-dir',$StateRoot)
     (@($args | ForEach-Object {if($_ -match '"'){throw 'Invalid startup path'};if($_.Contains(' ')){'"'+$_+'"'}else{$_}}) -join ' ')
 }
 function Get-RunValue([string]$Key) {
@@ -155,18 +184,31 @@ function Assert-Shortcut([string]$Path,[string]$Target,[string]$Arguments,[strin
 }
 function Save-Shortcut([string]$Path,[string]$Root,[string]$StateRoot) {
     $target=Join-Path $Root 'vcxsrv-wsl-manager.exe'
-    $args='--tray --state-dir "'+$StateRoot+'" --config "'+(Join-Path $StateRoot 'config.json')+'"'
+    $args='--tray --state-dir "'+$StateRoot+'"'
     Assert-Shortcut $Path $target $args $Root
     $null=New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($Path)) -Force
     $shell=New-Object -ComObject WScript.Shell
     try{$s=$shell.CreateShortcut($Path);$s.TargetPath=$target;$s.Arguments=$args;$s.WorkingDirectory=$Root;$s.Save()}finally{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)}
     @{path=$Path;target=$target;arguments=$args;directory=$Root;sha256=(Get-FileHash -LiteralPath $Path).Hash}
 }
-function Save-Ledger([string]$Root,$Ledger) {
+function Write-TemporaryPayload($Temporary,[IO.Stream]$Source) {$Source.CopyTo($Temporary.Stream)}
+function Write-TemporaryText($Temporary,[string]$Text) {
+    $bytes=[Text.UTF8Encoding]::new($false).GetBytes($Text)
+    $Temporary.Stream.Write($bytes,0,$bytes.Length)
+}
+function Close-OwnedTemporary($Temporary) {if($Temporary){try{$Temporary.Dispose()}catch{Write-Warning "Exact temporary cleanup failed: $($_.Exception.Message)"}}}
+function Save-Ledger([string]$Root,$Ledger,[string]$ExpectedIdentity,[string]$ExpectedHash,[switch]$RequireAbsent) {
     $path=Join-OwnedPath $Root 'install-manifest.json'
     $tmp=Join-OwnedPath $Root ('ledger-'+[guid]::NewGuid()+'.tmp')
-    $Ledger|ConvertTo-Json -Depth 30|Set-Content -LiteralPath $tmp -Encoding utf8
-    $entry=Get-OwnedEntry $Root ([IO.Path]::GetRelativePath($Root,$tmp))
-    try{[IO.File]::Move($tmp,$path,$true)}finally{try{Remove-Owned $Root @($entry)}catch{Write-Warning "Ledger temporary cleanup failed: $($_.Exception.Message)"}}
+    Initialize-HandleInterop
+    $owned=[VcXsrvOwnedTemporary]::new($tmp)
+    try{
+        Write-TemporaryText $owned ($Ledger|ConvertTo-Json -Depth 30)
+        $owned.Stream.Flush($true)
+        $null=Join-OwnedPath $Root 'install-manifest.json'
+        if($ExpectedIdentity){if([VcXsrvPackagingHandles]::Identity($path) -ne $ExpectedIdentity -or (Get-FileHash -LiteralPath $path).Hash -ne $ExpectedHash){throw 'Ledger changed before commit'}}
+        elseif($RequireAbsent -and (Test-Path -LiteralPath $path)){throw 'Unowned ledger appeared before commit'}
+        $owned.Commit($path,$true)
+    }finally{Close-OwnedTemporary $owned}
 }
 Export-ModuleMember -Function *

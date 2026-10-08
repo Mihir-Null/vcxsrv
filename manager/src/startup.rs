@@ -24,14 +24,17 @@ impl Drop for Key {
 }
 pub fn command(exe: &Path, options: &Options) -> Result<Vec<u16>, &'static str> {
     let mut out = Vec::new();
-    for item in [
+    let state = options.state_path()?;
+    let mut items = vec![
         exe.as_os_str(),
         OsStr::new("--tray"),
         OsStr::new("--state-dir"),
-        options.state_path()?.as_os_str(),
-        OsStr::new("--config"),
-        options.config_path()?.as_os_str(),
-    ] {
+        state.as_os_str(),
+    ];
+    if let Some(config) = &options.config {
+        items.extend([OsStr::new("--config"), config.as_os_str()]);
+    }
+    for item in items {
         if !out.is_empty() {
             out.push(32);
         }

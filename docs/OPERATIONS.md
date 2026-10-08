@@ -21,6 +21,8 @@ pwsh -NoProfile -File <bundle>/tools/uninstall.ps1 -Root <installation>
 
 Rollback also requires stopped state. Uninstall removes only manifest-owned files still matching their hashes and matching shortcut/startup entries; user-modified or unrelated files and private state remain. It leaves empty directories rather than recursively deleting an uncertain root. Run an uninstall script from the bundle or another location outside the installation being removed.
 
+Uninstall first moves matching owned files into `.uninstall/<id>` under the installation and retains a recovery receipt. A late locked file restores earlier moves before releasing the guard; shortcut/startup removal follows the payload moves and is also restored on failure. If storage itself prevents recovery, the receipt and payload remain at the reported path for diagnosis. Cleanup failure after the logical uninstall preserves the receipt rather than recursively deleting an uncertain tree. Installer temporary writes retain exclusive write ownership and clean their exact created file handles; a replacement at the temporary pathname survives. Each payload/ledger replacement reinspects current ownership and root safety immediately after staging.
+
 If a valid stopped record remains after maintenance, run the installed manager's explicit `recover-stopped` before Start. This retires only positively stopped metadata and preserves authority. Invalid/unknown records require diagnosis; reinstall is not credential recovery. `doctor --json` is read-only and never establishes live authenticated readiness.
 
 ## Guest activation and reversal

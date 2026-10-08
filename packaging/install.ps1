@@ -1,7 +1,7 @@
 [CmdletBinding(DefaultParameterSetName='Install')]
 param([Parameter(Mandatory,ParameterSetName='Install')][string]$Bundle,[string]$Root,[string]$StateRoot,[switch]$EnableStartup,[string]$ShortcutPath,[string]$StartupKey,[Parameter(Mandatory,ParameterSetName='Rollback')][switch]$Rollback)
 $ErrorActionPreference='Stop'
-Import-Module (Join-Path $PSScriptRoot 'Package.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Package.psm1') -DisableNameChecking
 $d=Get-Defaults
 if(!$Root){$Root=$d.Root};if(!$ShortcutPath){$ShortcutPath=$d.ShortcutPath};if(!$StartupKey){$StartupKey=$d.StartupKey}
 $Root=Resolve-InstallPath $Root
@@ -26,7 +26,7 @@ if($Rollback){
     $version=$manifest.version
     $guardStage=New-GuardStage $Bundle $manifest
 }
-$guard=$null;$backup=$null;$copied=@();$staged=@();$removed=@();$oldLedgerBytes=$null;$oldLedgerHash=$null;$shortcutBefore=$null;$shortcut=$null;$runBefore=$null
+$guard=$null;$backup=$null;$copied=@();$removed=@();$oldLedgerBytes=$null;$oldLedgerHash=$null;$oldLedgerIdentity=$null;$shortcutBefore=$null;$shortcut=$null;$runBefore=$null
 try {
     $guard=Acquire-InstallationGuard $guardStage.Root $Root $StateRoot
     # Reinspect under the retained singleton; no optimistic preflight authorizes mutation.
@@ -34,10 +34,10 @@ try {
     if(($null -eq $old) -ne ($null -eq $current)){throw 'Installation changed while acquiring guard'}
     if($current -and !(Resolve-InstallPath $current.stateRoot).Equals($StateRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'Installation state profile changed while acquiring guard'}
     $old=$current
-    if($old){Assert-Entries $Root $old.files -RequireFiles; $oldLedgerBytes=[IO.File]::ReadAllBytes((Join-OwnedPath $Root 'install-manifest.json'));$oldLedgerHash=(Get-FileHash -LiteralPath (Join-OwnedPath $Root 'install-manifest.json')).Hash}
+    if($old){Assert-Entries $Root $old.files -RequireFiles; $oldLedgerBytes=[IO.File]::ReadAllBytes((Join-OwnedPath $Root 'install-manifest.json'));$oldLedgerHash=(Get-FileHash -LiteralPath (Join-OwnedPath $Root 'install-manifest.json')).Hash;$oldLedgerIdentity=[VcXsrvPackagingHandles]::Identity((Join-OwnedPath $Root 'install-manifest.json'))}
     foreach($e in $incoming){$dst=Join-OwnedPath $Root $e.path;if((Test-Path -LiteralPath $dst) -and (!$old -or $e.path -notin $old.files.path)){throw "Unowned destination collision: $($e.path)"}}
     $target=Join-Path $Root 'vcxsrv-wsl-manager.exe'
-    $args='--tray --state-dir "'+$StateRoot+'" --config "'+(Join-Path $StateRoot 'config.json')+'"'
+    $args='--tray --state-dir "'+$StateRoot+'"'
     Assert-Shortcut $ShortcutPath $target $args $Root
     $command=Get-StartupCommand $Root $StateRoot
     $runBefore=Get-RunValue $StartupKey
@@ -58,11 +58,24 @@ try {
             $dst=Join-OwnedPath $Root $e.path
             $null=New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($dst)) -Force
             $temp=$dst+'.incoming-'+[guid]::NewGuid()
-            Copy-Item -LiteralPath (Join-OwnedPath $Bundle $e.path) -Destination $temp
-            $staged+=,[pscustomobject]@{path=[IO.Path]::GetRelativePath($Root,$temp);bytes=$e.bytes;sha256=$e.sha256}
-            if((Get-FileHash -LiteralPath $temp).Hash -ne $e.sha256){Remove-Item -LiteralPath $temp;throw 'Staged copy checksum mismatch'}
-            # Windows refuses writes/deletes of in-use images; never force a live process.
-            [IO.File]::Move($temp,$dst,$true)
+            $owned=[VcXsrvOwnedTemporary]::new($temp)
+            $source=$null
+            try{
+                $source=[IO.File]::OpenRead((Join-OwnedPath $Bundle $e.path))
+                Write-TemporaryPayload $owned $source
+                $owned.Stream.Flush($true);$owned.Stream.Position=0
+                $hash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($owned.Stream))
+                if($hash -ne $e.sha256 -or $owned.Stream.Length -ne $e.bytes){throw 'Staged copy checksum mismatch'}
+                # Revalidate immediately after staging, not thousands of copies earlier.
+                $dst=Join-OwnedPath $Root $e.path;$ledgerPath=Join-OwnedPath $Root 'install-manifest.json'
+                if($old){
+                    if([VcXsrvPackagingHandles]::Identity($ledgerPath) -ne $oldLedgerIdentity -or (Get-FileHash -LiteralPath $ledgerPath).Hash -ne $oldLedgerHash){throw 'Installation ledger changed before replacement'}
+                    $prior=@($old.files|Where-Object path -EQ $e.path)
+                    if($prior.Count){if(!(Test-OwnedEntry $Root $prior[0])){throw "Destination changed before replacement: $($e.path)"}}
+                    elseif(Test-Path -LiteralPath $dst){throw "Unowned destination appeared: $($e.path)"}
+                }else{if((Test-Path -LiteralPath $ledgerPath) -or (Test-Path -LiteralPath $dst)){throw 'Unowned destination or ledger appeared before replacement'}}
+                $owned.Commit($dst,[bool]($old -and $e.path -in $old.files.path))
+            }finally{if($source){$source.Dispose()};Close-OwnedTemporary $owned}
             $copied+=,$e
         }
         Assert-Entries $Root $incoming -RequireFiles
@@ -71,7 +84,7 @@ try {
         if($EnableStartup -and !$runBefore){Set-RunValue $StartupKey $command}
         $startup=$null
         if((Get-RunValue $StartupKey) -eq $command){$startup=@{key=$StartupKey;command=$command}}
-        Save-Ledger $Root @{schemaVersion=1;product='VcXsrvWSL';root=$Root;version=$version;files=$incoming;history=$history;previous=$previous;shortcut=$shortcut;startup=$startup;stateRoot=$StateRoot}
+        Save-Ledger $Root @{schemaVersion=1;product='VcXsrvWSL';root=$Root;version=$version;files=$incoming;history=$history;previous=$previous;shortcut=$shortcut;startup=$startup;stateRoot=$StateRoot} -ExpectedIdentity $oldLedgerIdentity -ExpectedHash $oldLedgerHash -RequireAbsent:(!$old)
     } catch {
         $failure=$_
         foreach($e in $copied){try{Remove-Owned $Root @($e)}catch{Write-Warning "Payload cleanup failed: $($_.Exception.Message)"}}
@@ -97,7 +110,7 @@ try {
             if(!$runBefore -and (Get-RunValue $StartupKey) -eq $command){Remove-MatchingRun $StartupKey $command}
         }catch{Write-Warning "Shortcut/startup recovery failed: $($_.Exception.Message)"}
         throw $failure
-    } finally {try{Remove-Owned $Root $staged}catch{Write-Warning "Staged cleanup failed: $($_.Exception.Message)"}}
+    }
     "Installed unsigned development version $version at $Root; state preserved"
 } finally {
     if($guard){$guard.Dispose()}
