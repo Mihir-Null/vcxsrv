@@ -137,8 +137,16 @@ function Update-BuildSnapshot {
     [IO.File]::WriteAllText($atoms,$content,[Text.UTF8Encoding]::new($false))
     $script = Join-Path $BuildRoot 'xorg-server/dix/generate-atoms'
     [IO.File]::WriteAllText($script,[IO.File]::ReadAllText($script).Replace("`r`n","`n"),[Text.UTF8Encoding]::new($false))
+    # mhmake can execute an existing directory target again. Verify assets on every execution.
+    $verifier = Join-Path $BuildRoot 'packaging/verify-keyboard.bat'
+    New-Item -ItemType Directory (Split-Path $verifier -Parent) -Force | Out-Null
+    $verifierSource = Join-Path $PSScriptRoot 'verify-keyboard.bat'
+    if (-not [IO.Path]::GetFullPath($verifier).Equals([IO.Path]::GetFullPath($verifierSource), [StringComparison]::OrdinalIgnoreCase)) {
+        Copy-Item -LiteralPath $verifierSource -Destination $verifier
+    }
     $keyboard = Join-Path $BuildRoot 'xorg-server/xkeyboard-config/makefile'
-    $content = [IO.File]::ReadAllText($keyboard).Replace('wsl ./build.sh','cmd.exe /d /c exit /b 1')
+    $verificationCommand = 'cmd.exe /d /c call "' + $verifier + '" "' + $BuildRoot + '"'
+    $content = [IO.File]::ReadAllText($keyboard).Replace('wsl ./build.sh',$verificationCommand).Replace('cmd.exe /d /c exit /b 1',$verificationCommand)
     [IO.File]::WriteAllText($keyboard,$content,[Text.UTF8Encoding]::new($false))
 }
 function Get-KeyboardAssetManifest {
