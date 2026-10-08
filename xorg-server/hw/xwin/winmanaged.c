@@ -59,18 +59,9 @@ const char *
 winManagedValidate(const winManagedOptions *options, int noListenAll,
                    int defeatAccessControl)
 {
-    const unsigned char *p;
-    /* The current char **argv and wsl.exe capture path support only a narrow
-     * ASCII token. Reject other names rather than querying a different distro.
-     * Task 3 replaces this boundary with lossless wide-character discovery. */
-    if (options->distro) {
-        if (!*options->distro || strlen(options->distro) >= 64)
-            return "-wsldistro name must contain 1 to 63 ASCII token characters";
-        for (p = (const unsigned char *) options->distro; *p; p++)
-            if (!((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
-                  (*p >= '0' && *p <= '9') || *p == '_' || *p == '-' || *p == '.'))
-                return "-wsldistro currently requires an ASCII token name";
-    }
+    /* The Windows argument boundary validates the original wide name. */
+    if (options->distro && !*options->distro)
+        return "-wsldistro needs a nonempty name";
     if (!options->enabled)
         return NULL;
     if (!options->authority || !*options->authority)

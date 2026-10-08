@@ -106,7 +106,7 @@ int main(int argc, char **argv)
     {char *args[]={"server","-wslmanaged","-auth","-ac"}; options=parse(4,args);
      CHECK(winManagedValidate(&options,0,0)==NULL);}
     {char *args[]={"server","-wslmanaged","-wsldistro","name with spaces","-auth","test.auth"};
-     options=parse(6,args); CHECK(winManagedValidate(&options,0,0)!=NULL);}
+     options=parse(6,args); CHECK(winManagedValidate(&options,0,0)==NULL);}
     {char *args[]={"server","-wsldistro"}; options=parse(2,args);
      CHECK(winManagedValidate(&options,0,0)!=NULL);}
     {char *args[]={"server","-wslmanaged","-auth",""};options=parse(4,args);

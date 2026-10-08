@@ -46,3 +46,15 @@ operation, or access denial under another Windows user's token.
 - `admission-trace.ps1 -Trace <ordinary-window-event-log>`: rejects an ordinary
   client's real SHOW events with TOOLWINDOW or without APPWINDOW. The preserved
   `vcxsrv-build-tools/test-window-events2.log` intentionally fails this assertion.
+
+- `discovery.ps1`: links the real Unicode parser, hidden Win32 runner, query and
+  lifecycle module. Covers UTF-16LE BOM/no BOM and CRLF, exact Unicode/spaces
+  selection, malformed/truncated/oversized output, invalid GUIDs, stopped/missing
+  guests, WSL1/unknown version rejection, shared discovery deadlines, and stale
+  pending cancellation. Real fixture children prove literal argv, original wide
+  command-line recovery, explicit handle inheritance, separate stderr, bounded
+  output, timeout and descendant-held-pipe cleanup. Fake WSL runner data exercises
+  the real query/lifecycle policy without starting or mutating any WSL guest.
+  Host registration Version is a conservative compatibility dependency; full
+  server/WSL runtime, localized hosts and coordinated restart/idle tests remain
+  separate acceptance work.

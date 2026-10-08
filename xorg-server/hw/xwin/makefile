@@ -55,6 +55,7 @@ SRCS =	InitInput.c \
 	winwindow.c \
 	winwndproc.c \
 	winvsock.c \
+	winwsldiscovery.c \
 	ddraw.h \
 	winconfig.h \
 	win.h \

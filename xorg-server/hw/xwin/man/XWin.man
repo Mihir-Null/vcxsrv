@@ -212,11 +212,19 @@ isolate distributions or Linux users sharing that VM.
 .B "\-wsldistro name"
 Selects the exact already-running WSL2 distribution for VM-id queries.
 If unavailable, the VSOCK listener remains unbound and the watcher retries;
-another distribution is never substituted. The present narrow argv interface
-accepts only 1 to 63 ASCII letters, digits, underscore, hyphen or period.
-Unicode, names containing spaces, and locale-independent discovery are pending
-the dedicated discovery implementation. Without this option, generic
-\fB-wslvsock\fP preserves its first-running-distribution behavior.
+another distribution is never substituted. Names support spaces and Unicode,
+with 1 to 256 UTF-16 code units and no control characters. Quote names
+containing spaces using ordinary Windows command-line quoting.
+Without this option, generic \fB-wslvsock\fP selects the first running
+distribution whose host registration establishes WSL version 2.
+Unknown versions and WSL1 distributions are skipped conservatively.
+
+Running membership uses the locale-independent quiet list, and is checked
+again immediately before guest execution. The list and execution are separate
+operations: a concurrent stop after the check can still race with execution
+and start the distribution. Bound discovery uses only host process scans.
+The hidden Unicode process runner uses the trusted system wsl.exe path,
+bounded output and a shared five-second discovery deadline.
 .TP 8
 .B \-[no]clipboard
 Enables [disables] the integration between the X11 clipboard and

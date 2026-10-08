@@ -47,6 +47,7 @@ from The Open Group.
 #include "winmonitors.h"
 #include "winprefs.h"
 #include "winmanaged.h"
+#include "winwsldiscovery.h"
 #include "../../os/winlocal.h"
 #include "dix/dix_priv.h"
 #define XSERV_t
@@ -73,6 +74,7 @@ void
 static int iLastScreen = -1;
 static winScreenInfo defaultScreenInfo;
 static winManagedOptions managedOptions;
+static wchar_t wslDistro[WIN_WSL_NAME_CAP];
 
 static void
 winLegacyAuthorityWarning(const char *path)
@@ -109,7 +111,7 @@ winApplyManagedProfile(void)
     int i;
     if (reason)
         winManagedFatal(reason);
-    g_pszWslDistro = managedOptions.distro;
+    g_pwszWslDistro = managedOptions.distro ? wslDistro : NULL;
     if (!managedOptions.enabled) {
         /* Defer the legacy modal warning until we know the final profile.
          * Managed -auth failures must exit even when -wslmanaged comes later. */
@@ -129,7 +131,7 @@ winApplyManagedProfile(void)
 #endif
         )
         winManagedFatal("unable to disable every TCP listener");
-    g_pszWslDistro = managedOptions.distro ? managedOptions.distro : "NixOS";
+    g_pwszWslDistro = managedOptions.distro ? wslDistro : L"NixOS";
     g_fWslVsock = TRUE;
     g_fClipboard = TRUE;
     defaultScreenInfo.fMultiWindow = TRUE;
@@ -334,8 +336,12 @@ ddxProcessArgument(int argc, char *argv[], int i)
 
     {
         int used = winManagedObserve(&managedOptions, argc, argv, i);
-        if (used)
+        if (used) {
+            if (!strcmp(argv[i], "-wsldistro") &&
+                !winWslDistroArgument(i, wslDistro))
+                winManagedFatal("-wsldistro requires 1 to 256 UTF-16 code units without controls");
             return used;
+        }
     }
 
     /*
