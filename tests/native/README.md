@@ -23,8 +23,15 @@ Build outputs and logs go in ignored `.native-tests/`.
   allocation and setup failures; verifies reference transfer and screen bounds.
 - `winxcb-live.ps1`: actual bundled XCB authentication setup bytes and success /
   rejection handling; fixtures use disposable non-secret test cookie bytes.
+- `managed-profile.ps1`: production option observer and final validation,
+  both flag orders, generic invocation isolation, and real binary authority parsing.
+- `managed-auth.ps1 -BuildRoot ...`: actual production ClientAuthorized gate,
+  managed AF_HYPERV/AF_UNIX/TCP peer metadata, host/NOXAUTH bypass denial,
+  successful authorization and preserved generic behavior. Its authorization,
+  address and audit dependencies are controlled; full server setup remains live
+  acceptance through `tests/acceptance/Test-Server.ps1` and `x11-probe.py`.
 - `compile-units.ps1`: compile all affected production translation units.
 
 No test starts WSL, changes services/registry/firewall, or creates a TCP listener.
-These fixtures do not establish full-server authorization policy, WM/clipboard
+These fixtures do not establish full-server protocol operation, WM/clipboard
 operation, or access denial under another Windows user's token.

@@ -91,6 +91,7 @@ winDispatchProcPtr winProcEstablishConnectionOrig = NULL;
  * Hyper-V vsock (WSL2) auto-configuration, disabled by default (-wslvsock)
  */
 Bool g_fWslVsock = FALSE;
+const char *g_pszWslDistro = NULL;
 
 /*
  * Clipboard variables

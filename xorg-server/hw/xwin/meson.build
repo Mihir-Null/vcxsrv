@@ -76,6 +76,7 @@ srcs_windows += [
     'winos.c',
     'winprefs.c',
     'winprocarg.c',
+    'winmanaged.c',
     'winscrinit.c',
     'winshadddnl.c',
     'winshadgdi.c',

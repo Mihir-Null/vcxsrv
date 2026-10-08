@@ -37,6 +37,7 @@
 
 #include "win.h"
 #include "winglobals.h"
+#include "../../os/winlocal.h"
 
 #include "os.h"
 #include "dix/dix_priv.h"       /* display */
@@ -245,7 +246,7 @@ winWslDecodeOutput(const char *raw, char *out, size_t outLen)
  * and cannot serve the vsock query.
  */
 static BOOL
-winWslFirstRunningDistro(char *name, size_t nameLen)
+winWslRunningDistro(char *name, size_t nameLen)
 {
     char raw[2048], decoded[2048];
     DWORD exitCode = 1;
@@ -309,7 +310,10 @@ winWslFirstRunningDistro(char *name, size_t nameLen)
                     end = s + strlen(s);
                     while (end > s && isspace((unsigned char)end[-1]))
                         *--end = '\0';
-                    if (*s) {
+                    /* Selected names must match exactly; never substitute the
+                     * default or another running distro in managed mode. */
+                    if (*s && (!g_pszWslDistro || !strcmp(s, g_pszWslDistro)) &&
+                        strlen(s) < nameLen) {
                         snprintf(name, nameLen, "%s", s);
                         return TRUE;
                     }
@@ -327,8 +331,8 @@ winWslFirstRunningDistro(char *name, size_t nameLen)
 /*
  * Validate a 36-character GUID string (xxxxxxxx-xxxx-...-xxxxxxxxxxxx).
  * Doubles as the failure detector: WSL1, ancient WSL versions and machines
- * without WSL all fail to produce this, so they fall through to the TCP
- * fallback paths.
+ * without WSL all fail to produce this. Managed mode remains unbound and
+ * retries; it never creates a TCP fallback.
  */
 static BOOL
 winIsGuidStr(const char *s)
@@ -354,7 +358,7 @@ winIsGuidStr(const char *s)
 /*
  * Query the WSL2 VM id by running wslinfo inside an already-running
  * distro, so the query itself never boots a distro. Callers must pass a
- * distro that is currently Running (see winWslFirstRunningDistro).
+ * distro that is currently Running (see winWslRunningDistro).
  */
 static BOOL
 winWslQueryVmId(char guid[37], const char *distro)
@@ -439,7 +443,7 @@ winVsockWorkerProc(void *arg)
         }
         stateTick = 0;
 
-        if (winWslFirstRunningDistro(distro, sizeof(distro)) &&
+        if (winWslRunningDistro(distro, sizeof(distro)) &&
             winWslQueryVmId(guid, distro)) {
             EnterCriticalSection(&g_vsockLock);
             if (_stricmp(guid, g_vsockBoundGuid) != 0) {
@@ -571,7 +575,7 @@ winVsockPreInit(int argc, char *argv[])
      * unbound - the watcher binds late as soon as one comes up. */
     {
         BOOL vmUp = winWslVmPresent();
-        BOOL haveDistro = vmUp ? winWslFirstRunningDistro(distro, sizeof(distro)) : FALSE;
+        BOOL haveDistro = vmUp ? winWslRunningDistro(distro, sizeof(distro)) : FALSE;
         BOOL haveGuid = haveDistro ? winWslQueryVmId(guid, distro) : FALSE;
 
         if (vmUp && haveDistro && haveGuid) {
@@ -591,8 +595,9 @@ winVsockPreInit(int argc, char *argv[])
     }
     else {
         _XSERVTransNoListen("hyperv");
-        ErrorF("winVsock: no running WSL2 distro detected, "
-               "vsock listener disabled for now (TCP unaffected)\n");
+        ErrorF("winVsock: selected running WSL2 distro/VM id unavailable, "
+               "vsock listener disabled for now%s\n",
+               winLocalManaged ? " (managed TCP remains disabled)" : " (TCP unaffected)");
     }
     }
 }

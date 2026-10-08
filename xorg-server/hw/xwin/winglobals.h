@@ -75,6 +75,7 @@ typedef int (*winDispatchProcPtr) (ClientPtr);
  */
 extern winDispatchProcPtr winProcEstablishConnectionOrig;
 extern Bool g_fWslVsock;
+extern const char *g_pszWslDistro;
 extern Bool g_fClipboard;
 extern Bool g_fClipboardStarted;
 

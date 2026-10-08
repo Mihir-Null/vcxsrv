@@ -37,6 +37,7 @@ from The Open Group.
 
 #include "os/cmdline.h"
 #include "os/osdep.h"
+#include "os/auth.h"
 #include "os/ddx_priv.h"
 
 #include <../xfree86/common/xorgVersion.h>
@@ -45,6 +46,12 @@ from The Open Group.
 #include "winmsg.h"
 #include "winmonitors.h"
 #include "winprefs.h"
+#include "winmanaged.h"
+#include "../../os/winlocal.h"
+#include "dix/dix_priv.h"
+#define XSERV_t
+#define TRANS_SERVER
+#include <X11/Xtrans/Xtrans.h>
 
 #include "winclipboard/winclipboard.h"
 extern Bool g_fClipboardPrimary;
@@ -65,6 +72,48 @@ void
 
 static int iLastScreen = -1;
 static winScreenInfo defaultScreenInfo;
+static winManagedOptions managedOptions;
+
+void
+winApplyManagedProfile(void)
+{
+    const char *reason = winManagedValidate(&managedOptions, NoListenAll,
+                                           defeatAccessControl);
+    int i;
+    if (reason)
+        FatalError("WSL profile: %s\n", reason);
+    g_pszWslDistro = managedOptions.distro;
+    if (!managedOptions.enabled)
+        return;
+    if (!explicit_display)
+        display = "1";
+    reason = winManagedAuthorityError(managedOptions.authority, display);
+    if (reason)
+        FatalError("WSL profile: %s\n", reason);
+    /* TCP aliases were applied during generic parsing. Reassert the invariant
+     * after the complete argument stream, before any listener exists. */
+    if (_XSERVTransNoListen("tcp") || _XSERVTransIsListening("inet")
+#ifdef IPv6
+        || _XSERVTransIsListening("inet6")
+#endif
+        )
+        FatalError("WSL profile: unable to disable every TCP listener\n");
+    g_pszWslDistro = managedOptions.distro ? managedOptions.distro : "NixOS";
+    g_fWslVsock = TRUE;
+    g_fClipboard = TRUE;
+    defaultScreenInfo.fMultiWindow = TRUE;
+    if (!defaultScreenInfo.fMultiMonitorOverride)
+        defaultScreenInfo.fMultipleMonitors = TRUE;
+    for (i = 0; i < g_iNumScreens; i++) {
+        g_ScreenInfo[i].fMultiWindow = TRUE;
+        if (!g_ScreenInfo[i].fMultiMonitorOverride)
+            g_ScreenInfo[i].fMultipleMonitors = TRUE;
+    }
+    if (!winValidateArgs())
+        FatalError("WSL profile: invalid screen options\n");
+    /* Immutable while internal clients run. This also activates strict auth. */
+    winLocalManaged = 1;
+}
 
 static void
 winInitializeScreenDefaults(void)
@@ -251,6 +300,12 @@ ddxProcessArgument(int argc, char *argv[], int i)
     }
 
     winDebug("ddxProcessArgument - arg: %s\n", argv[i]);
+
+    {
+        int used = winManagedObserve(&managedOptions, argc, argv, i);
+        if (used)
+            return used;
+    }
 
     /*
      * Look for the '-help' and similar options

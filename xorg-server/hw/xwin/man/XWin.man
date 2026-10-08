@@ -192,6 +192,32 @@ The default is disabled.
 
 .SH OPTIONS CONTROLLING WINDOWS INTEGRATION
 .TP 8
+.B \-wslmanaged
+Selects the authenticated WSL2 managed profile. Enables multiwindow, clipboard
+integration and automatic Hyper-V VSOCK, and disables all TCP transports after
+argument parsing. Defaults to display 1 and the exact NixOS distribution unless
+an explicit display or \fB-wsldistro\fP is supplied. Requires \fB-auth\fP to
+name a readable Xauthority file containing a 16-byte MIT-MAGIC-COOKIE-1 entry
+for the server display. Missing, invalid or conflicting options exit nonzero
+before any listener is created.
+
+The profile rejects \fB-ac\fP, \fB-listen tcp\fP (including inet and inet6),
+disabling the local or Hyper-V listeners, \fB-nowslvsock\fP,
+\fB-noclipboard\fP, manual \fB-vmid\fP and incompatible window/XDMCP modes
+in either argument order. Cookie authentication is required for every client,
+including the internal Windows-local multiwindow and clipboard clients.
+There is no host-address exemption or TCP fallback. Exact VM binding does not
+isolate distributions or Linux users sharing that VM.
+.TP 8
+.B "\-wsldistro name"
+Selects the exact already-running WSL2 distribution for VM-id queries.
+If unavailable, the VSOCK listener remains unbound and the watcher retries;
+another distribution is never substituted. The present narrow argv interface
+accepts only 1 to 63 ASCII letters, digits, underscore, hyphen or period.
+Unicode, names containing spaces, and locale-independent discovery are pending
+the dedicated discovery implementation. Without this option, generic
+\fB-wslvsock\fP preserves its first-running-distribution behavior.
+.TP 8
 .B \-[no]clipboard
 Enables [disables] the integration between the X11 clipboard and
 \fIWindows\fP clipboard.  The default is enabled.

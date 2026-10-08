@@ -1014,6 +1014,8 @@ winCreateMsgWindowThread(void);
  * winvsock.c
  */
 void
+winApplyManagedProfile(void);
+void
 winVsockPreInit(int argc, char *argv[]);
 void
 winVsockStartWatcher(void);

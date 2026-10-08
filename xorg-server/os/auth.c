@@ -114,7 +114,9 @@ LoadAuthorization(void)
         return 0;
 
     errno = 0;
-    f = Fopen(authorization_file, "r");
+    /* Xauthority records contain arbitrary cookie bytes. Native Windows text
+     * mode translates CRLF and treats 0x1a as EOF, corrupting valid records. */
+    f = Fopen(authorization_file, "rb");
     if (!f) {
         LogMessageVerb(X_ERROR, 0,
                        "Failed to open authorization file \"%s\": %s\n",

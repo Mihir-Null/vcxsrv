@@ -646,6 +646,7 @@ winFixupPaths(void)
 void
 OsVendorPreInit(int argc, char *argv[])
 {
+    winApplyManagedProfile();
     winFixupPaths();
 
     if (!g_fLogInited) {
@@ -751,6 +752,12 @@ winUseMsg(void)
     ErrorF("-[no]clipboard\n"
            "\tEnable [disable] the clipboard integration. Default is enabled.\n");
 
+    ErrorF("-wslmanaged\n"
+           "\tRequire cookie authentication, disable TCP, and enable multiwindow,\n"
+           "\tclipboard and automatic WSL2 VSOCK. Requires -auth <file>.\n"
+           "-wsldistro name\n"
+           "\tSelect the exact already-running WSL2 distro (managed default NixOS).\n"
+           "\tCurrently accepts ASCII token names; Unicode discovery is pending.\n");
     ErrorF("-[no]wslvsock\n"
            "\tEnable [disable] the Hyper-V vsock listener for WSL2. When\n"
            "\tenabled, the WSL2 VM id is detected automatically (via wsl.exe)\n"

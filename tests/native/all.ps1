@@ -6,6 +6,8 @@ $tests = @(
     @{ Script = 'xtrans.ps1'; Args = @() },
     @{ Script = 'winxcb.ps1'; Args = @() },
     @{ Script = 'winxcb-live.ps1'; Args = @('-XcbBuildRoot', $XcbBuildRoot) },
+    @{ Script = 'managed-profile.ps1'; Args = @() },
+    @{ Script = 'managed-auth.ps1'; Args = @('-BuildRoot', $XcbBuildRoot) },
     @{ Script = 'compile-units.ps1'; Args = @('-BuildRoot', $XcbBuildRoot) }
 )
 foreach ($test in $tests) {

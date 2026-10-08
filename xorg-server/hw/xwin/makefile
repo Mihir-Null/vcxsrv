@@ -43,6 +43,7 @@ SRCS =	InitInput.c \
 	winprefsyacc.y \
 	winprefslex.l \
 	winprocarg.c \
+	winmanaged.c \
 	winscrinit.c \
 	winshadddnl.c \
 	winshadgdi.c \
@@ -98,4 +99,3 @@ INCLUDES += $(OBJDIR)
 
 $(OBJDIR)\winprefslex.c $(OBJDIR)\winprefsyacc.c $(OBJDIR)\winprefsyacc.h: winprefslex.l winprefsyacc.y
 	doflexbison.bat $(subst \,/,$(OBJDIR))
-
