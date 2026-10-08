@@ -72,7 +72,7 @@ PASS means the stated expected behavior was observed for the named source/fixtur
 | Startup/shortcut ownership / R7 | Startup off by default, opt-in isolated, externally changed entries preserved | Matrix and `S/task8-review-green-first.log` passed. No normal startup registration activated. | PASS |
 | Actual installed-entry cold launch / R9, current manager hash above | Generated shortcut and Run command initialize absent state without explicit missing-config failure | Both created protected config, selected fixture companion path, left authority/ownership absent and exited normally with exit0. `B/installed-first-launch.log`, `.exit`, `installed-first-launch-results.json`. Deliberately absent companion prevented any server/guest startup. | PASS, first-launch configuration only |
 | Full bundle maintenance / R8, historical `task8-bundle-884fa90-r1` | Install/reinstall/rollback/uninstall preserve modified/unrelated/state files | `S/task8-package-actual.log` passed in a spaced isolated root. Its installer predates later review corrections; this does not establish current full-size fixture success. | PASS, historical preview |
-| Corrected full-size bundle maintenance / R8 | Repeat meaningful full runtime fixture after copy/uninstall changes | `S/task8-review-fix-actual.log`, fixture `B/task8-fix1-preview-dirty`: running at this checkpoint, with initial installation recorded; final result not yet confirmed. | NOT RUN to completion / pending |
+| Corrected full-size bundle maintenance / R8 | Repeat meaningful full runtime fixture after copy/uninstall changes | `S/task8-review-fix-actual.log`, fixture `B/task8-fix1-preview-dirty`: PASS exit0 for first/repeat installation, rollback and transactional uninstall. Only modified protocol.txt and unrelated.txt remain; ledger/quarantine payload absent. Source delivery was explicitly pending in this internal fixture; final manifest correspondence binds tested runtime/scripts to delivery. | PASS, corrected full-size fixture |
 | Historical corresponding source / R10, `d618a8aa7` | ZIP integrity, exact source correspondence and all13 locked crates resolve offline | `S/task8-final-artifact-proof.json` and `task8-source-offline-metadata.json` record success for the superseded candidate. Not evidence of refreshed post-correction delivery. | PASS, historical candidate |
 | Final refreshed artifact assembly / R10 | Immutable manifest matches approved source, current manager and retained server/runtime bytes | Waits for this documentation commit and final assembly/review; final identities must come from that bundle and external receipt. | NOT RUN / pending |
 
@@ -114,6 +114,13 @@ The daemon has Wants/After on the relay and `X-RestartIfChanged=false`. Effectiv
 | Global WSLg disable/cutover | Separately approved change and validation; unnecessary for initial coexistence | NOT RUN |
 
 No normal daemon restart, guest activation, WSL shutdown or sleep test occurred in this checkpoint. [OPERATIONS.md](OPERATIONS.md) describes the coordinated activation/reversal procedure. A persistent relay and linger may affect WSL idle retirement; that remains an experiment, not a guarantee.
+
+## Known nonblocking follow-ups
+
+The final whole-branch source review through `718a352ef` found no Critical or Important findings. Its two Minor findings were explicitly retained by the controller:
+
+- **M1, console help:** `xorg-server/hw/xwin/InitOutput.c:760` still says distro discovery accepts only ASCII names. Runtime uses the original wide Windows arguments and supports validated Unicode/spaced names; tests cover those boundaries. The sentence is a documentation defect scheduled for the next source/binary refresh. The tested server binary is preserved.
+- **M2, maintenance time:** the corrected full-size fixture ran from 03:27:56 to 03:55:59 local time on 2026-10-08, about **28m03s** total. Initial install completed within about 3m31s, repeat by 9m05s cumulative, rollback took about 8m07s, and uninstall about 10m51s. These approximate phase observations include validation/staging/controller overhead and two retained rollback copies, not a benchmark. Evidence: `S/task8-review-fix-timing.json` and `task8-review-fix-actual.log`. Per-file old-entry scans and repeated ledger hashing merit future profiling/indexed lookup with immediate ownership validation preserved; no performance tuning or validation removal was made in this artifact.
 
 ## Operating limits
 
