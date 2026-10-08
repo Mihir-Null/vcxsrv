@@ -62,3 +62,11 @@ operation, or access denial under another Windows user's token.
 - `winadmission-state.ps1`: invokes the same production `ApplyState` callback used
   by the WM worker, checking iconic/zoom remaps of a surviving HWND with unchanged
   recorded state, plus unchanged-state no-op behavior outside pending admission.
+
+- `discovery-live.ps1 -Distro NixOS`: optional installed-WSL smoke outside
+  `all.ps1`. Exercises the actual system wsl.exe host running list, byte decoder,
+  registry compatibility check and exact selected-distro query. The default
+  performs host queries only. Explicit `-QueryVmId` also invokes production
+  VM-id discovery only after confirming the selected guest is running; list
+  and execution retain the documented stop race. It does not register a guest,
+  shut down WSL, change configuration or swap/restart a server.

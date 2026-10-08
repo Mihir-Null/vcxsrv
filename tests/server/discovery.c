@@ -8,6 +8,13 @@
 static const char vm1[]="12345678-1234-5678-9012-123456789abc";
 static const char vm2[]="abcdef01-1234-5678-9012-123456789abc";
 static const wchar_t selected[]=L"Work \x65e5\x672c";
+static void quoteHostOptions(void)
+{
+    const wchar_t *args[]={L"C:\\Windows\\system32\\wsl.exe",L"--list",L"--running",L"--quiet",NULL};
+    wchar_t line[256];
+    CHECK(winWslQuoteArgs(args,line,256));
+    CHECK(!wcscmp(line,L"C:\\Windows\\system32\\wsl.exe --list --running --quiet"));
+}
 static void parser(void)
 {
     const wchar_t quiet[]=L"NixOS\r\nWork \x65e5\x672c\r\n";
@@ -160,5 +167,5 @@ static void process(void)
 int main(int argc,char **argv)
 {
     if(argc>1) { if(!strcmp(argv[1],"test-parser")){parser();return 0;} if(!strcmp(argv[1],"test-queries")){queries();return 0;} if(!strcmp(argv[1],"test-lifecycle")){lifecycle();return 0;} if(!strcmp(argv[1],"test-process")){process();return 0;} return child(argc,argv); }
-    parser();queries();lifecycle();process();return 0;
+    quoteHostOptions();parser();queries();lifecycle();process();return 0;
 }

@@ -122,6 +122,12 @@ BOOL winWslQuoteArgs(const wchar_t *const *args, wchar_t *out, size_t cap)
     if (!cap) return FALSE;
     for (a = 0; args[a]; a++) {
         if (a) PUT(' ');
+        /* WSL recognizes host switches as literal unquoted tokens. Quote
+         * only when Windows argv parsing requires it; no shell is involved. */
+        if (args[a][0] && !wcspbrk(args[a], L" \t\r\n\v\"")) {
+            for (i = 0; args[a][i]; i++) PUT(args[a][i]);
+            continue;
+        }
         PUT('"');
         for (i = 0; args[a][i];) {
             n = 0;
