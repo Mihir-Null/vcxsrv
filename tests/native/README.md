@@ -35,3 +35,14 @@ Build outputs and logs go in ignored `.native-tests/`.
 No test starts WSL, changes services/registry/firewall, or creates a TCP listener.
 These fixtures do not establish full-server protocol operation, WM/clipboard
 operation, or access denial under another Windows user's token.
+
+- `winadmission.ps1`: links the production native admission module to real HWNDs.
+  Checks the first real `EVENT_OBJECT_SHOW` via `SetWinEventHook`, hidden preparation,
+  real cross-thread owner callbacks, queued completion, stale XID/token rejection,
+  duplicate/reentrant completion, 50 surviving-HWND remaps, destroyed-window identity,
+  initial minimized/maximized states, and owned/tool/NOACTIVATE windows. The fixture's
+  supplied native hints are test inputs; actual X hint parsing and automatic Leopard
+  admission require the full server acceptance run.
+- `admission-trace.ps1 -Trace <ordinary-window-event-log>`: rejects an ordinary
+  client's real SHOW events with TOOLWINDOW or without APPWINDOW. The preserved
+  `vcxsrv-build-tools/test-window-events2.log` intentionally fails this assertion.

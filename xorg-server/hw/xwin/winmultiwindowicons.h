@@ -32,6 +32,9 @@
 void
  winUpdateIcon(HWND hWnd, xcb_connection_t *conn, xcb_window_t id, HICON hIconNew);
 
+void winLoadWindowIcons(xcb_connection_t *conn, xcb_window_t id, HICON override, HICON *largeIcon, HICON *smallIcon);
+void winSetWindowIcons(HWND hwnd, HICON largeIcon, HICON smallIcon);
+
 void
  winInitGlobalIcons(void);
 

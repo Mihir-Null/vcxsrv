@@ -37,6 +37,8 @@
 #endif
 
 #include "win.h"
+#include "winadmission.h"
+#include "../../os/winlocal.h"
 #include "dixevents.h"
 #include "winmultiwindowclass.h"
 #include "winmultiwindowicons.h"
@@ -632,6 +634,7 @@ winDestroyWindowsWindow(WindowPtr pWin)
     if (pWinPriv->hWnd == NULL)
         return;
 
+    winAdmissionCancel(pWinPriv->hWnd);
     winInDestroyWindowsWindow = TRUE;
 
     /* Store the info we need to destroy after this window is gone */
@@ -688,7 +691,24 @@ winUpdateWindowsWindow(WindowPtr pWin)
             assert(pWinPriv->hWnd != NULL);
         }
 
-        /* Display the window without activating it */
+        /* Managed windows must be fully initialized before their first SHOW. */
+        if (winLocalManaged && !pWin->overrideRedirect &&
+            pWin->drawable.class != InputOnly) {
+            if (!winAdmissionQuery(pWinPriv->hWnd, pWin->drawable.id)) {
+                winWMMessageRec message = {0};
+                message.msg = WM_WM_MAP_PREPARE;
+                message.hwndWindow = pWinPriv->hWnd;
+                message.iWindow = pWin->drawable.id;
+                message.admissionToken = winAdmissionBegin(message.hwndWindow, (unsigned int)message.iWindow);
+                if (!message.admissionToken)
+                    FatalError("Cannot allocate managed window admission state\n");
+                winPrepareManagedWindow(message.hwndWindow);
+                winSendMessageToWM(pWinPriv->pScreenPriv->pWMInfo, &message);
+            }
+            /* Repeated redraws must not turn an in-flight map into a SHOW. */
+            return;
+        }
+        /* Generic and override-redirect lifecycle is unchanged. */
         if (pWin->drawable.class != InputOnly)
             ShowWindow(pWinPriv->hWnd, SW_SHOWNOACTIVATE);
 
@@ -696,6 +716,7 @@ winUpdateWindowsWindow(WindowPtr pWin)
         UpdateWindow(pWinPriv->hWnd); // IZI 2019
     }
     else if (hWnd != NULL) {
+        winAdmissionCancel(hWnd);
         if (pWinPriv->fWglUsed) {
             /* We do not need to destroy the window but to reparent it and move it to the
                correct place when it is an opengl window */

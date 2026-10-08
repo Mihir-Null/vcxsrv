@@ -59,6 +59,8 @@ typedef int pid_t;
 
 /* Local headers */
 #include "winwindow.h"
+#include "winadmission.h"
+#include "../../os/winlocal.h"
 #include "winprefs.h"
 #include "window.h"
 #include "pixmapstr.h"
@@ -136,6 +138,8 @@ typedef struct _WMInfo {
     xcb_atom_t atmWmState;
     xcb_ewmh_connection_t ewmh;
     Bool fCompositeWM;
+    /* Used exclusively by the WM worker, never the X event thread. */
+    winAdmissionTicket nativeTicket;
 } WMInfoRec, *WMInfoPtr;
 
 typedef struct _WMProcArgRec {
@@ -620,6 +624,58 @@ GetClassNames(WMInfoPtr pWMInfo, xcb_window_t iWindow, char **res_name,
     }
 }
 
+/* Native mutations for managed windows run only on their owner thread.
+ * All XCB work finishes before entering these callbacks. */
+static BOOL
+ApplyNative(WMInfoPtr info, HWND hwnd, winAdmissionMutation mutate, void *data)
+{
+    if (info->nativeTicket.token)
+        return winAdmissionApply(&info->nativeTicket, mutate, data);
+    mutate(hwnd, data);
+    return TRUE;
+}
+
+static void ApplyName(HWND hwnd, void *name) { SetWindowTextW(hwnd, name); }
+typedef struct { HICON large, smallIcon; } NativeIcons;
+static void ApplyIcons(HWND hwnd, void *data)
+{
+    NativeIcons *icons = data;
+    winSetWindowIcons(hwnd, icons->large, icons->smallIcon);
+}
+
+typedef struct { HWND zstyle; int extra; } NativePosition;
+static void ApplyPosition(HWND hwnd, void *data)
+{
+    NativePosition *position = data;
+    if (position->extra) {
+        UINT flags = SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE;
+        winUpdateWindowPosition(hwnd, &position->zstyle);
+        if (position->zstyle == HWND_NOTOPMOST) flags |= SWP_NOZORDER | SWP_NOOWNERZORDER;
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0, flags);
+    }
+    winShowWindowOnTaskbar(hwnd,
+        (GetWindowLongPtr(hwnd, GWL_EXSTYLE) & WS_EX_APPWINDOW) ||
+        GetWindowLongPtr(hwnd, GWLP_HWNDPARENT) == 0 ? TRUE : FALSE);
+}
+#define XCB_ICCCM_WM_STATE_ZOOM 2
+typedef struct { int state, previous; } NativeState;
+static void ApplyState(HWND hwnd, void *data)
+{
+    NativeState *state = data;
+    int command;
+    state->previous = (int)(intptr_t)GetProp(hwnd, WIN_STATE_PROP);
+    if (state->previous == state->state) return;
+    SetProp(hwnd, WIN_STATE_PROP, (HANDLE)(intptr_t)state->state);
+    switch (state->state) {
+    case XCB_ICCCM_WM_STATE_ICONIC: command = SW_SHOWMINNOACTIVE; break;
+    case XCB_ICCCM_WM_STATE_ZOOM: command = SW_SHOWMAXIMIZED; break;
+    case XCB_ICCCM_WM_STATE_NORMAL: command = SW_SHOWNOACTIVATE; break;
+    case XCB_ICCCM_WM_STATE_WITHDRAWN: command = SW_HIDE; break;
+    default: return;
+    }
+    winAdmissionSetShowCommand(hwnd, command);
+}
+
 /*
  * Updates the name of a HWND according to its X WM_NAME property
  */
@@ -650,7 +706,7 @@ UpdateName(WMInfoPtr pWMInfo, xcb_window_t iWindow)
                                 pwszWideWindowName, iLen);
 
             /* Set the Windows window name */
-            SetWindowTextW(hWnd, pwszWideWindowName);
+            ApplyNative(pWMInfo, hWnd, ApplyName, pwszWideWindowName);
 
             free(pwszWideWindowName);
             free(pszWindowName);
@@ -685,7 +741,14 @@ UpdateIcon(WMInfoPtr pWMInfo, xcb_window_t iWindow)
         free(res_name);
         free(res_class);
         free(window_name);
-        winUpdateIcon(hWnd, pWMInfo->conn, iWindow, hIconNew);
+        if (pWMInfo->nativeTicket.token) {
+            NativeIcons icons;
+            winLoadWindowIcons(pWMInfo->conn, iWindow, hIconNew, &icons.large, &icons.smallIcon);
+            if (!ApplyNative(pWMInfo, hWnd, ApplyIcons, &icons)) {
+                winDestroyIcon(icons.large);
+                if (icons.smallIcon != icons.large) winDestroyIcon(icons.smallIcon);
+            }
+        } else winUpdateIcon(hWnd, pWMInfo->conn, iWindow, hIconNew);
     }
 }
 
@@ -698,7 +761,6 @@ UpdateStyle(WMInfoPtr pWMInfo, xcb_window_t iWindow, unsigned long *maxmin, int 
 {
     HWND hWnd;
     HWND zstyle = HWND_NOTOPMOST;
-    UINT flags;
 
     /* If window isn't override-redirect */
     if (IsOverrideRedirect(pWMInfo->conn, iWindow))
@@ -710,29 +772,10 @@ UpdateStyle(WMInfoPtr pWMInfo, xcb_window_t iWindow, unsigned long *maxmin, int 
 
     /* Determine the Window style, which determines borders and clipping region... */
     winApplyHints(pWMInfo, iWindow, hWnd, &zstyle, maxmin);
-    if (extra)
     {
-      winUpdateWindowPosition(hWnd, &zstyle);
-      /* Apply the updated window style, without changing its show or activation state */
-      flags = SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE;
-      if (zstyle == HWND_NOTOPMOST)
-          flags |= SWP_NOZORDER | SWP_NOOWNERZORDER;
-      SetWindowPos(hWnd, NULL, 0, 0, 0, 0, flags);
+        NativePosition position = {zstyle, extra};
+        ApplyNative(pWMInfo, hWnd, ApplyPosition, &position);
     }
-
-    /*
-       Use the WS_EX_TOOLWINDOW style to remove window from Alt-Tab window switcher
-
-       According to MSDN, this is supposed to remove the window from the taskbar as well,
-       if we SW_HIDE before changing the style followed by SW_SHOW afterwards.
-
-       But that doesn't seem to work reliably, and causes the window to flicker, so use
-       the iTaskbarList interface to tell the taskbar to show or hide this window.
-     */
-    // parentless windows appears also on task bar, regardless of style
-    winShowWindowOnTaskbar(hWnd,
-                           (GetWindowLongPtr(hWnd, GWL_EXSTYLE)&WS_EX_APPWINDOW)||
-                            GetWindowLongPtr(hWnd, GWLP_HWNDPARENT)==0 ? TRUE : FALSE);
 }
 
 /*
@@ -748,38 +791,12 @@ UpdateState(WMInfoPtr pWMInfo, xcb_window_t iWindow, int state)
     winDebug("UpdateState: iWindow 0x%08x %d\n", (int)iWindow, state);
 
     hWnd = getHwnd(pWMInfo, iWindow);
-    if (hWnd)
-        {
-            // Keep track of the Window state, do nothing if it's not changing
-            current_state = (intptr_t)GetProp(hWnd, WIN_STATE_PROP);
-
-            if (current_state == state)
-                return;
-
-            SetProp(hWnd, WIN_STATE_PROP, (HANDLE)(intptr_t)state);
-
-            switch (state)
-                {
-                case XCB_ICCCM_WM_STATE_ICONIC:
-                    ShowWindow(hWnd, SW_SHOWMINNOACTIVE);
-                    break;
-
-#define XCB_ICCCM_WM_STATE_ZOOM 2
-                case XCB_ICCCM_WM_STATE_ZOOM:
-                    // There doesn't seem to be a SW_SHOWMAXNOACTIVE.  Hopefully
-                    // always activating a maximized window isn't so bad...
-                    ShowWindow(hWnd, SW_SHOWMAXIMIZED);
-                    break;
-
-                case XCB_ICCCM_WM_STATE_NORMAL:
-                    ShowWindow(hWnd, SW_SHOWNOACTIVATE);
-                    break;
-
-                case XCB_ICCCM_WM_STATE_WITHDRAWN:
-                    ShowWindow(hWnd, SW_HIDE);
-                    break;
-                }
-        }
+    if (hWnd) {
+        NativeState native = {state, -1};
+        if (!ApplyNative(pWMInfo, hWnd, ApplyState, &native)) return;
+        current_state = native.previous;
+        if (current_state == state) return;
+    }
 
     // Update WM_STATE property
     {
@@ -845,7 +862,6 @@ UpdateState(WMInfoPtr pWMInfo, xcb_window_t iWindow, int state)
                     (pAtom[i] != pWMInfo->ewmh._NET_WM_STATE_MAXIMIZED_HORZ))
                     netwmstate[o++] = pAtom[i];
             }
-            free(reply);
 
             // if iconized, add _NET_WM_HIDDEN
             if (state == XCB_ICCCM_WM_STATE_ICONIC) {
@@ -876,7 +892,8 @@ UpdateState(WMInfoPtr pWMInfo, xcb_window_t iWindow, int state)
                                     iWindow,
                                     pWMInfo->ewmh._NET_WM_STATE,
                                     XCB_ATOM_ATOM, 32,
-                                    o, (unsigned char *) &netwmstate);
+                                    o, (unsigned char *) netwmstate);
+            free(reply);
         }
     }
 }
@@ -955,6 +972,29 @@ winMultiWindowWMProc(void *pArg)
         winDebug("winMultiWindowWMProc - MSG: %s (%d) ID: %d\n",
                MessageName(&(pNode->msg)), (int)pNode->msg.msg, (int)pNode->msg.dwID);
 
+        memset(&pWMInfo->nativeTicket, 0, sizeof(pWMInfo->nativeTicket));
+        if (pNode->msg.msg == WM_WM_MAP_PREPARE) {
+            pWMInfo->nativeTicket.hwnd = pNode->msg.hwndWindow;
+            pWMInfo->nativeTicket.xid = (unsigned int)pNode->msg.iWindow;
+            pWMInfo->nativeTicket.token = pNode->msg.admissionToken;
+            if (!pWMInfo->nativeTicket.token ||
+                SendMessage(pNode->msg.hwndWindow, WM_WIN_ADMISSION_QUERY,
+                            pWMInfo->nativeTicket.xid, 0) != pWMInfo->nativeTicket.token) {
+                free(pNode);
+                continue;
+            }
+        } else if (winLocalManaged &&
+                   (pNode->msg.msg == WM_WM_NAME_EVENT || pNode->msg.msg == WM_WM_ICON_EVENT ||
+                    pNode->msg.msg == WM_WM_HINTS_EVENT || pNode->msg.msg == WM_WM_CHANGE_STATE) &&
+                   !IsOverrideRedirect(pWMInfo->conn, pNode->msg.iWindow)) {
+            HWND hwnd = getHwnd(pWMInfo, pNode->msg.iWindow);
+            pWMInfo->nativeTicket.hwnd = hwnd;
+            pWMInfo->nativeTicket.xid = (unsigned int)pNode->msg.iWindow;
+            pWMInfo->nativeTicket.token = hwnd ? SendMessage(hwnd, WM_WIN_ADMISSION_QUERY,
+                                                        pWMInfo->nativeTicket.xid, 0) : 0;
+            if (!pWMInfo->nativeTicket.token) { free(pNode); continue; }
+        }
+
         /* Branch on the message type */
         switch (pNode->msg.msg) {
         case WM_WM_RAISE:
@@ -985,6 +1025,7 @@ winMultiWindowWMProc(void *pArg)
 
             break;
 
+        case WM_WM_MAP_PREPARE:
         case WM_WM_MAP_MANAGED:
           {
             unsigned long maxmin = 0;
@@ -998,8 +1039,8 @@ winMultiWindowWMProc(void *pArg)
             UpdateName(pWMInfo, pNode->msg.iWindow);
             UpdateStyle(pWMInfo, pNode->msg.iWindow, &maxmin, 1);
 
-            /* Reshape */
-            {
+            /* Managed shape mutations occur on the owner at completion. */
+            if (!pWMInfo->nativeTicket.token) {
                 WindowPtr pWin =
                     GetProp(pNode->msg.hwndWindow, WIN_WINDOW_PROP);
                 if (pWin) {
@@ -1009,17 +1050,33 @@ winMultiWindowWMProc(void *pArg)
             }
 
             UpdateIcon(pWMInfo, pNode->msg.iWindow);
-            /* Establish initial state */
-            UpdateState(pWMInfo, pNode->msg.iWindow, XCB_ICCCM_WM_STATE_NORMAL);
-
-            /*
-              It only makes sense to apply minimize/maximize override as the
-              initial state, otherwise that state can't be changed.
-            */
-            if (maxmin & HINT_MAX)
-                SendMessage(pNode->msg.hwndWindow, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
-            else if (maxmin & HINT_MIN)
-                SendMessage(pNode->msg.hwndWindow, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+            if (pWMInfo->nativeTicket.token) {
+                xcb_icccm_wm_hints_t hints;
+                xcb_get_property_cookie_t cookie = xcb_icccm_get_wm_hints(pWMInfo->conn, pNode->msg.iWindow);
+                if (xcb_icccm_get_wm_hints_reply(pWMInfo->conn, cookie, &hints, NULL) &&
+                    (hints.flags & XCB_ICCCM_WM_HINT_STATE) &&
+                    hints.initial_state == XCB_ICCCM_WM_STATE_ICONIC)
+                    maxmin = (maxmin & ~HINT_MAX) | HINT_MIN;
+                UpdateState(pWMInfo, pNode->msg.iWindow, (maxmin & HINT_MAX) ?
+                            XCB_ICCCM_WM_STATE_ZOOM : (maxmin & HINT_MIN) ?
+                            XCB_ICCCM_WM_STATE_ICONIC : XCB_ICCCM_WM_STATE_NORMAL);
+                if (!PostMessage(pWMInfo->nativeTicket.hwnd, WM_WIN_ADMISSION_READY,
+                                 pWMInfo->nativeTicket.xid, pWMInfo->nativeTicket.token)) {
+                    /* A destroyed window is expected. A live failed post must not
+                     * silently strand an invisible window; synchronous delivery
+                     * is bounded to this one fallback and revalidates identity. */
+                    ErrorF("Managed admission ready post failed for XID 0x%x (error %lu); delivering directly\n",
+                           pNode->msg.iWindow, GetLastError());
+                    SendMessage(pWMInfo->nativeTicket.hwnd, WM_WIN_ADMISSION_READY,
+                                pWMInfo->nativeTicket.xid, pWMInfo->nativeTicket.token);
+                }
+            } else {
+                UpdateState(pWMInfo, pNode->msg.iWindow, XCB_ICCCM_WM_STATE_NORMAL);
+                if (maxmin & HINT_MAX)
+                    SendMessage(pNode->msg.hwndWindow, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
+                else if (maxmin & HINT_MIN)
+                    SendMessage(pNode->msg.hwndWindow, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+            }
           }
 
             break;
@@ -1880,6 +1937,8 @@ winSendMessageToWM(void *pWMInfo, winWMMessagePtr pMsg)
     if (pNode != NULL) {
         memcpy(&pNode->msg, pMsg, sizeof(winWMMessageRec));
         PushMessage(&((WMInfoPtr) pWMInfo)->wmMsgQueue, pNode);
+    } else if (pMsg->msg == WM_WM_MAP_PREPARE) {
+        FatalError("Cannot queue managed window admission\n");
     }
 }
 
@@ -1953,6 +2012,101 @@ winDeinitMultiWindowWM(void)
 #define HINT_NOSYSMENU  (1L<<6)
 #define HINT_SKIPTASKBAR (1L<<7)
 
+typedef struct {
+    unsigned long hint;
+    Bool nodecoration;
+    const char *applicationId;
+} NativeHints;
+
+/* Preserve the historical motif fullscreen heuristic before config overrides. */
+static void
+ApplyNoDecorationGeometry(HWND hwnd, void *data)
+{
+    unsigned long *maxmin = data;
+    WindowPtr window = GetProp(hwnd, WIN_WINDOW_PROP);
+    if (window) {
+        float proportion = (float)window->drawable.height / GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        if (proportion > 0.95 && proportion < 1.00) *maxmin |= HINT_MAX;
+        window->borderWidth = 0;
+    }
+}
+
+static void
+ApplyHintsNative(HWND hWnd, void *data)
+{
+    NativeHints *native = data;
+    unsigned long hint = native->hint;
+    unsigned long style, exStyle, oristyle, oriexStyle;
+    Bool nodecoration = native->nodecoration;
+    winSetAppUserModelID(hWnd, native->applicationId);
+    /* Now apply styles to window */
+    style = GetWindowLongPtr(hWnd, GWL_STYLE);
+    if (!style)
+        return;                 /* GetWindowLongPointer returns 0 on failure, we hope this isn't a valid style */
+    oristyle = style;
+
+    style &= ~WS_CAPTION & ~WS_SIZEBOX; /* Just in case */
+
+    if (!(hint & ~(HINT_SKIPTASKBAR|HINT_NOMAXIMIZE)))    /* No hints, default */
+        style = style | WS_CAPTION | WS_SIZEBOX;
+    else if (hint & HINT_NOFRAME)       /* No frame, no decorations */
+        style = style & ~WS_CAPTION & ~WS_SIZEBOX;
+    else
+        style = style | ((hint & HINT_BORDER) ? WS_BORDER : 0) |
+            ((hint & HINT_SIZEBOX) ? WS_SIZEBOX : 0) |
+            ((hint & HINT_CAPTION) ? WS_CAPTION : 0);
+
+    if (hint & HINT_NOMAXIMIZE)
+        style = style & ~WS_MAXIMIZEBOX;
+
+    if (hint & HINT_NOMINIMIZE)
+        style = style & ~WS_MINIMIZEBOX;
+
+    if (hint & HINT_NOSYSMENU)
+        style = style & ~WS_SYSMENU;
+
+    if (hint & HINT_SKIPTASKBAR) {
+        style = style & ~WS_MINIMIZEBOX;        /* window will become lost if minimized */
+    }
+
+    if (nodecoration)
+    {	// fullscreen
+        style &= ~(WS_THICKFRAME|WS_DLGFRAME|WS_SIZEBOX|WS_MAXIMIZEBOX|WS_MINIMIZEBOX|WS_SYSMENU|WS_MINIMIZEBOX|WS_CAPTION);
+        style |= WS_POPUP;
+        if (!winAdmissionPending(hWnd)) style |= WS_VISIBLE;
+        winDebug("nodecoration %x style SET %x\n", hWnd, style);
+    }
+
+    if (!IsWindow (hWnd))
+    {
+        ErrorF("Windows window 0x%x has become invalid, so returning without applying hints\n",hWnd);
+        return;
+    }
+
+    if (style!=oristyle)
+    {
+        if (hint & HINT_SKIPTASKBAR) {
+            winShowWindowOnTaskbar(hWnd, FALSE);
+        }
+        SetWindowLongPtr(hWnd, GWL_STYLE, style);
+    }
+
+    exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE);
+    oriexStyle=exStyle;
+    if (hint & HINT_SKIPTASKBAR)
+        exStyle = (exStyle & ~WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW;
+    else
+        exStyle = (exStyle & ~WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW;
+    if (exStyle!=oriexStyle)
+    {
+        SetWindowLongPtr(hWnd, GWL_EXSTYLE, exStyle);
+    }
+
+    winDebug
+        ("winApplyHints: iWindow 0x%08x hints 0x%08x style 0x%08x exstyle 0x%08x\n",
+         (unsigned int)GetProp(hWnd, WIN_WID_PROP), hint, style, exStyle);
+}
+
 static void
 winApplyHints(WMInfoPtr pWMInfo, xcb_window_t iWindow, HWND hWnd, HWND * zstyle, unsigned long *maxmin)
 {
@@ -1965,8 +2119,8 @@ winApplyHints(WMInfoPtr pWMInfo, xcb_window_t iWindow, HWND hWnd, HWND * zstyle,
 
     unsigned long hint = HINT_BORDER | HINT_SIZEBOX | HINT_CAPTION;
     unsigned long taskbar = 0;
-    unsigned long style, exStyle;
-    unsigned long oristyle, oriexStyle;
+    unsigned long style;
+    char *applicationId = NULL;
     Bool nodecoration = FALSE;
 
     *maxmin = 0;
@@ -2032,32 +2186,7 @@ winApplyHints(WMInfoPtr pWMInfo, xcb_window_t iWindow, HWND hWnd, HWND * zstyle,
             (mwm_hint->flags & MwmHintsDecorations)) {
           if (!mwm_hint->decorations)
           {
-            WindowPtr pWin = GetProp(hWnd, WIN_WINDOW_PROP);
-            if (pWin)
-            {
-              int iX, iY, iWidth, iHeight;
-              int monitorHeight= GetSystemMetrics(SM_CYVIRTUALSCREEN);
-              float proportion;
-              DrawablePtr pDraw = &pWin->drawable;
-
-              /* Get the X and Y location of the X window */
-              iX = pWin->drawable.x + GetSystemMetrics(SM_XVIRTUALSCREEN);
-              iY = pWin->drawable.y + GetSystemMetrics(SM_YVIRTUALSCREEN);
-
-              /* Get the height and width of the X window */
-              iWidth = pWin->drawable.width;
-              iHeight = pWin->drawable.height;
-
-              proportion= ((float)pWin->drawable.height)/monitorHeight;
-              winDebug("nodecoration %x = proportion %f\n",hWnd,proportion);
-              if( proportion>0.95 && proportion<1.00)
-              {   // if height is inside 5% of full range , make it fullscreen (there is no HINT_FULLSCREEN)
-                winDebug("nodecoration %x SET fullscreen\n",hWnd);
-                *maxmin |= HINT_MAX; // make fullscreen !
-              }
-              pWin->borderWidth=0;
-            }
-
+            ApplyNative(pWMInfo, hWnd, ApplyNoDecorationGeometry, maxmin);
             hint &= ~(HINT_BORDER | HINT_SIZEBOX | HINT_CAPTION | HINT_NOFRAME);
             hint |= ( HINT_NOSYSMENU | HINT_NOMINIMIZE | HINT_NOMAXIMIZE | HINT_NOFRAME);
             nodecoration = TRUE;
@@ -2180,9 +2309,7 @@ winApplyHints(WMInfoPtr pWMInfo, xcb_window_t iWindow, HWND hWnd, HWND * zstyle,
                  (window_name) ? window_name : "SubProductUnknown",
                  (taskbar & TASKBAR_NEWTAB) ? rand_id :
                  (getenv("DISNO")) ? getenv("DISNO") : 0);
-        winSetAppUserModelID(hWnd, application_id);
-
-        free(application_id);
+        applicationId = application_id;
         free(res_name);
         free(res_class);
         free(window_name);
@@ -2214,71 +2341,11 @@ winApplyHints(WMInfoPtr pWMInfo, xcb_window_t iWindow, HWND hWnd, HWND * zstyle,
     if (taskbar & TASKBAR_NOTAB)
         hint |= HINT_SKIPTASKBAR;
 
-    /* Now apply styles to window */
-    style = GetWindowLongPtr(hWnd, GWL_STYLE);
-    if (!style)
-        return;                 /* GetWindowLongPointer returns 0 on failure, we hope this isn't a valid style */
-    oristyle = style;
-
-    style &= ~WS_CAPTION & ~WS_SIZEBOX; /* Just in case */
-
-    if (!(hint & ~(HINT_SKIPTASKBAR|HINT_NOMAXIMIZE)))    /* No hints, default */
-        style = style | WS_CAPTION | WS_SIZEBOX;
-    else if (hint & HINT_NOFRAME)       /* No frame, no decorations */
-        style = style & ~WS_CAPTION & ~WS_SIZEBOX;
-    else
-        style = style | ((hint & HINT_BORDER) ? WS_BORDER : 0) |
-            ((hint & HINT_SIZEBOX) ? WS_SIZEBOX : 0) |
-            ((hint & HINT_CAPTION) ? WS_CAPTION : 0);
-
-    if (hint & HINT_NOMAXIMIZE)
-        style = style & ~WS_MAXIMIZEBOX;
-
-    if (hint & HINT_NOMINIMIZE)
-        style = style & ~WS_MINIMIZEBOX;
-
-    if (hint & HINT_NOSYSMENU)
-        style = style & ~WS_SYSMENU;
-
-    if (hint & HINT_SKIPTASKBAR) {
-        style = style & ~WS_MINIMIZEBOX;        /* window will become lost if minimized */
-    }
-
-    if (nodecoration)
-    {	// fullscreen
-        style &= ~(WS_THICKFRAME|WS_DLGFRAME|WS_SIZEBOX|WS_MAXIMIZEBOX|WS_MINIMIZEBOX|WS_SYSMENU|WS_MINIMIZEBOX|WS_CAPTION);
-        style |= WS_POPUP|WS_VISIBLE;
-        winDebug("nodecoration %x style SET %x\n", hWnd, style);
-    }
-
-    if (!IsWindow (hWnd))
     {
-        ErrorF("Windows window 0x%x has become invalid, so returning without applying hints\n",hWnd);
-        return;
+        NativeHints native = {hint, nodecoration, applicationId};
+        ApplyNative(pWMInfo, hWnd, ApplyHintsNative, &native);
     }
-
-    if (style!=oristyle)
-    {
-        if (hint & HINT_SKIPTASKBAR) {
-            winShowWindowOnTaskbar(hWnd, FALSE);
-        }
-        SetWindowLongPtr(hWnd, GWL_STYLE, style);
-    }
-
-    exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE);
-    oriexStyle=exStyle;
-    if (hint & HINT_SKIPTASKBAR)
-        exStyle = (exStyle & ~WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW;
-    else
-        exStyle = (exStyle & ~WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW;
-    if (exStyle!=oriexStyle)
-    {
-        SetWindowLongPtr(hWnd, GWL_EXSTYLE, exStyle);
-    }
-
-    winDebug
-        ("winApplyHints: iWindow 0x%08x hints 0x%08x style 0x%08x exstyle 0x%08x\n",
-         iWindow, hint, style, exStyle);
+    free(applicationId);
 }
 
 void

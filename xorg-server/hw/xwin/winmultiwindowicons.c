@@ -551,9 +551,9 @@ winXIconToHICON(xcb_connection_t *conn, xcb_window_t id, int iconSize)
  */
 
 void
-winUpdateIcon(HWND hWnd, xcb_connection_t *conn, xcb_window_t id, HICON hIconNew)
+winLoadWindowIcons(xcb_connection_t *conn, xcb_window_t id, HICON hIconNew, HICON *large, HICON *smallIcon)
 {
-    HICON hIcon, hIconSmall = NULL, hIconOld;
+    HICON hIcon, hIconSmall = NULL;
 
     if (hIconNew) {
         /* Start with the icon from preferences, if any */
@@ -576,6 +576,14 @@ winUpdateIcon(HWND hWnd, xcb_connection_t *conn, xcb_window_t id, HICON hIconNew
         hIconSmall = g_hSmallIconX;
     }
 
+    *large = hIcon;
+    *smallIcon = hIconSmall;
+}
+
+void
+winSetWindowIcons(HWND hWnd, HICON hIcon, HICON hIconSmall)
+{
+    HICON hIconOld;
     if (hIcon) {
         /* Set the large icon */
         hIconOld = (HICON) SendMessage(hWnd, WM_SETICON, ICON_BIG, (LPARAM) hIcon);
@@ -589,6 +597,14 @@ winUpdateIcon(HWND hWnd, xcb_connection_t *conn, xcb_window_t id, HICON hIconNew
             (HICON) SendMessage(hWnd, WM_SETICON, ICON_SMALL, (LPARAM) hIconSmall);
         winDestroyIcon(hIconOld);
     }
+}
+
+void
+winUpdateIcon(HWND hWnd, xcb_connection_t *conn, xcb_window_t id, HICON hIconNew)
+{
+    HICON large, smallIcon;
+    winLoadWindowIcons(conn, id, hIconNew, &large, &smallIcon);
+    winSetWindowIcons(hWnd, large, smallIcon);
 }
 
 void

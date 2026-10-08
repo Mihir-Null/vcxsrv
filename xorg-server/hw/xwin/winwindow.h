@@ -87,6 +87,7 @@ typedef struct _winWMMessageRec {
     DWORD msg;
     int iWindow;
     HWND hwndWindow;
+    ULONG_PTR admissionToken; /* used only by WM_WM_MAP_PREPARE */
     int iX, iY;
     int iWidth, iHeight;
 } winWMMessageRec, *winWMMessagePtr;
@@ -108,6 +109,10 @@ typedef struct _winWMMessageRec {
 #define		WM_WM_MAP_UNMANAGED	(WM_USER + 12)
 #define		WM_WM_MAP_MANAGED	(WM_USER + 13)
 #define		WM_WM_HINTS_EVENT	(WM_USER + 14)
+
+#define WM_WM_MAP_PREPARE (WM_USER + 15)
+
+void winPrepareManagedWindow(HWND hwnd);
 
 #define		MwmHintsDecorations	(1L << 1)
 

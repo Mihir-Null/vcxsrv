@@ -41,6 +41,7 @@
 #undef GC
 
 #include "win.h"
+#include "winadmission.h"
 
 #include "dix/dix_priv.h"
 #include "mi/mipointer_priv.h"
@@ -494,6 +495,16 @@ winAdjustXWindowState(winPrivScreenPtr s_pScreenPriv, winWMMessageRec *wmMsg)
 int sizeChanged;
 unsigned lastTime;
 
+/* Shared with the historical WM_SHOWWINDOW path. Called only by the owner. */
+void
+winPrepareManagedWindow(HWND hwnd)
+{
+    HWND zstyle = HWND_NOTOPMOST;
+    SetProp(hwnd, WIN_NEEDMANAGE_PROP, (HANDLE)1);
+    winPrepareNativeWindow(hwnd);
+    winUpdateWindowPosition(hwnd, &zstyle);
+}
+
 LRESULT CALLBACK
 winTopLevelWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -558,6 +569,27 @@ winTopLevelWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     else
     {
         winDebug("Warning: message 0x%x received when WIN_WINDOW_PROP NULL\n",message);
+    }
+
+    if (message == WM_WIN_ADMISSION_QUERY || message == WM_WIN_ADMISSION_APPLY ||
+        message == WM_WIN_ADMISSION_READY) {
+        Bool live = pWin && pWinPriv->hWnd == hwnd && !pWinPriv->fXKilled &&
+            pWin->mapped && pWin->parent && !pWin->parent->parent &&
+            !pWin->overrideRedirect && pWin->drawable.class != InputOnly;
+        if (message == WM_WIN_ADMISSION_QUERY)
+            return live ? winAdmissionQuery(hwnd, wParam) : 0;
+        if (message == WM_WIN_ADMISSION_APPLY)
+            return winAdmissionDispatch(hwnd, (winAdmissionRequest *)lParam, live);
+        if (live && winAdmissionQuery(hwnd, wParam) == (ULONG_PTR)lParam &&
+            winAdmissionPending(hwnd)) {
+            winReshapeMultiWindow(pWin);
+            winUpdateRgnMultiWindow(pWin);
+        }
+        if (winAdmissionComplete(hwnd, wParam, (ULONG_PTR)lParam, live)) {
+            winStartMousePolling(s_pScreenPriv);
+            return TRUE;
+        }
+        return FALSE;
     }
 
     /* Branch on message type */
@@ -1007,6 +1039,7 @@ winTopLevelWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_DESTROY:
+        winAdmissionCancel(hwnd);
 
         /* Branch on if the window was killed in X already */
         if (pWinPriv && !pWinPriv->fXKilled) {
@@ -1040,24 +1073,8 @@ winTopLevelWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         /* */
         if (!pWin->overrideRedirect) {
-            HWND zstyle = HWND_NOTOPMOST;
-
-            /* Flag that this window needs to be made active when clicked */
-            SetProp(hwnd, WIN_NEEDMANAGE_PROP, (HANDLE) 1);
-
-            /* Set the transient style flags */
-            if (GetParent(hwnd))
-                SetWindowLongPtr(hwnd, GWL_STYLE,
-                                 WS_POPUP | WS_OVERLAPPED | WS_SYSMENU |
-                                 WS_CLIPCHILDREN | WS_CLIPSIBLINGS);
-            /* Set the window standard style flags */
-            else
-                SetWindowLongPtr(hwnd, GWL_STYLE,
-                                 (WS_POPUP | WS_OVERLAPPEDWINDOW |
-                                  WS_CLIPCHILDREN | WS_CLIPSIBLINGS)
-                                 & ~WS_CAPTION & ~WS_SIZEBOX);
-
-            winUpdateWindowPosition(hwnd, &zstyle);
+            if (!winAdmissionQuery(hwnd, pWin->drawable.id))
+                winPrepareManagedWindow(hwnd);
 
             {
                 WinXWMHints hints;
@@ -1068,7 +1085,9 @@ winTopLevelWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
                        which is FALSE (this is used by e.g. glean to
                        avoid every test window grabbing the focus)
                      */
-                    if (!((hints.flags & InputHint) && (!hints.input))) {
+                    if (!((hints.flags & InputHint) && (!hints.input)) &&
+                        (!winAdmissionQuery(hwnd, pWin->drawable.id) ||
+                         (INT_PTR)GetProp(hwnd, WIN_STATE_PROP) != IconicState)) {
                         SetForegroundWindow(hwnd);
                     }
                 }
@@ -1094,7 +1113,7 @@ winTopLevelWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
 
         /* Tell our Window Manager thread to map the window */
-        if (pWin)
+        if (pWin && !winAdmissionQuery(hwnd, pWin->drawable.id))
             winSendMessageToWM(s_pScreenPriv->pWMInfo, &wmMsg);
 
         winStartMousePolling(s_pScreenPriv);

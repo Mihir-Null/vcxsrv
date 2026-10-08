@@ -43,6 +43,7 @@ SRCS =	InitInput.c \
 	winprefsyacc.y \
 	winprefslex.l \
 	winprocarg.c \
+	winadmission.c \
 	winmanaged.c \
 	winscrinit.c \
 	winshadddnl.c \
