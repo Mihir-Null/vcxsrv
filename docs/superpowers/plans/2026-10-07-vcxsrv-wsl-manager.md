@@ -64,6 +64,14 @@
 - [ ] Verify how multiwindow and clipboard internal clients connect with TCP disabled. Preserve a supported local transport and generated internal credentials. Source inspection confirms LOCALCONN and UNIXCONN disabled. User explicitly approved adding and testing a Windows-local transport. Implement native AF_UNIX via Winsock for internal clients, without TCP fallback; test actual local connections, strict auth, cleanup and multiwindow/clipboard call sites. Expand this task into a transport subtask if needed; no repeat design approval required.
 - [ ] Run native tests, build the server and verify new help/options. Defer real VSOCK protocol tests to Task 9 under LIVE HOLD. Commit only when source tests pass; record live checks as pending.
 
+## Task 2c: Show managed native windows after initial hints are ready
+
+Live acceptance demonstrated that VcXsrv emits CREATE/SHOW while its Emacs frame is still a TOOLWINDOW. LeopardWM rejects those events; later APPWINDOW promotion emits only location events, so manual refresh is required. Correct this in the managed server profile before counting tiler integration complete.
+
+- [ ] Prepare managed ordinary windows while hidden, queue existing asynchronous WM initialization, then perform first real ShowWindow after final name/style/icon/state. Preserve generic and override-redirect behavior.
+- [ ] Keep per-window state on the owner thread and carry copied XID plus generation/token for readiness. Invalidate on unmap/destroy, reject stale completions, and prevent duplicate map preparation on the completion ShowWindow callback.
+- [ ] Cover early visibility from UpdateState and fullscreen/no-decoration hints; preserve initial minimized/maximized states, owned dialogs, skip-taskbar/tool windows and InputOnly behavior. Do not synthesize duplicate SHOW events or make manager polling/Leopard refresh the product workaround.
+- [ ] Test real native event ordering and map/unmap/remap races; compile affected units/full server. Verify new separate Emacs frames automatically tile without refresh, then retain resize/focus and user-verified rendering/input behavior.
 ## Task 3: Make discovery explicit, Unicode-safe and bounded
 
 **Files:** winvsock.c, winprocarg.c, winglobals.{c,h}, win.h, XWin.man; tests/server/discovery.c.

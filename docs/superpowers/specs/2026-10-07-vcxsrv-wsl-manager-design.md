@@ -1,7 +1,7 @@
 # VcXsrv WSL manager and McQueenix integration
 
 Date: 2026-10-07
-Status: Approved by the user on 2026-10-07. Implementation plan pending review. Live WSL testing remains on hold while the user rebuilds NixOS.
+Status: Design and implementation plan approved; subagent execution underway. User confirmed the rebuilt NixOS WSL is online on 2026-10-07. Preserve existing Emacs sessions during tests.
 
 ## Outcome
 
