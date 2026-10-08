@@ -20,7 +20,7 @@ parse(int count, char **args)
     return options;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     char *missing[] = {"server", "-wslmanaged"};
     char *valid[] = {"server", "-wslmanaged", "-auth", "test.auth", "-wsldistro", "NixOS"};
@@ -35,6 +35,51 @@ int main(void)
     winManagedOptions options;
     size_t j;
     int order;
+    if (argc > 1 && !strcmp(argv[1], "option-values")) {
+        unsigned char cookie[16]={0,13,10,26,255,128};
+        Xauth auth={FamilyWild,0,NULL,1,"1",18,"MIT-MAGIC-COOKIE-1",16,(char *)cookie};
+        FILE *file=fopen("-vmid","wb");
+        CHECK(file);CHECK(XauWriteAuth(file,&auth));fclose(file);
+        for (order = 0; order < 2; order++) {
+            char *distroFirst[] = {"server","-wsldistro","-vmid","-auth","-vmid","-wslmanaged"};
+            char *profileFirst[] = {"server","-wslmanaged","-auth","-vmid","-wsldistro","-vmid"};
+            char **args = order ? profileFirst : distroFirst;
+            options = parse(6,args);
+            CHECK(winManagedValidate(&options,0,0)==NULL);
+            CHECK(winManagedAuthorityError(options.authority,"1")==NULL);
+            CHECK(winVsockLegacyOverrides(options.enabled,6,args)==0);
+        }
+        remove("-vmid");
+        {
+            char *args[]={"server","-vmid","guid","-listen","hyperv","-nolisten","hyperv"};
+            CHECK(winVsockLegacyOverrides(0,7,args)==
+                  (WIN_VSOCK_MANUAL_VM|WIN_VSOCK_MANUAL_LISTEN|WIN_VSOCK_MANUAL_NOLISTEN));
+        }
+        puts("PASS actual VSOCK startup policy: option-looking managed values, generic overrides retained");
+        return 0;
+    }
+    if (argc > 1 && !strcmp(argv[1], "authority-tail")) {
+        unsigned char cookie[16]={0,13,10,26,255,128};
+        Xauth auth={FamilyWild,0,NULL,1,"1",18,"MIT-MAGIC-COOKIE-1",16,(char *)cookie};
+        unsigned char record[64];
+        FILE *file=fopen("managed-fixture.auth","wb");
+        size_t length, tail;
+        CHECK(file);CHECK(XauWriteAuth(file,&auth));fclose(file);
+        file=fopen("managed-fixture.auth","rb");CHECK(file);
+        length=fread(record,1,sizeof(record),file);fclose(file);CHECK(length>0);
+        for(tail=1;tail<length;tail++) {
+            file=fopen("managed-fixture.auth","wb");CHECK(file);
+            CHECK(fwrite(record,1,length,file)==length);
+            CHECK(fwrite(record,1,tail,file)==tail);fclose(file);
+            CHECK(winManagedAuthorityError("managed-fixture.auth","1")!=NULL);
+        }
+        file=fopen("managed-fixture.auth","wb");CHECK(file);
+        CHECK(XauWriteAuth(file,&auth));CHECK(XauWriteAuth(file,&auth));fclose(file);
+        CHECK(winManagedAuthorityError("managed-fixture.auth","1")==NULL);
+        remove("managed-fixture.auth");
+        puts("PASS strict authority framing: every truncated trailing record rejected, clean multi-record EOF accepted");
+        return 0;
+    }
     options=parse(2,missing);
     CHECK(options.enabled);
     CHECK(winManagedValidate(&options,0,0)!=NULL);

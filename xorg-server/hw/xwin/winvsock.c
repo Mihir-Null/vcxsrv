@@ -37,6 +37,7 @@
 
 #include "win.h"
 #include "winglobals.h"
+#include "winmanaged.h"
 #include "../../os/winlocal.h"
 
 #include "os.h"
@@ -71,25 +72,6 @@ static BOOL g_vsockDirty = FALSE;                   /* pending needs binding */
 
 static BOOL g_vsockAuto = FALSE;          /* -wslvsock auto-detection active */
 static BOOL g_vsockWatcherStarted = FALSE;
-
-/*
- * Look for an option in argv, optionally with a specific following argument.
- */
-static BOOL
-winArgvHas(int argc, char *argv[], const char *opt, const char *optArg)
-{
-    int i;
-
-    for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], opt) == 0) {
-            if (!optArg)
-                return TRUE;
-            if (i + 1 < argc && strcmp(argv[i + 1], optArg) == 0)
-                return TRUE;
-        }
-    }
-    return FALSE;
-}
 
 /*
  * Run a console command without flashing a window and capture its (small)
@@ -550,22 +532,22 @@ void
 winVsockPreInit(int argc, char *argv[])
 {
     char guid[37], braced[WIN_VSOCK_GUID_LEN], distro[WIN_VSOCK_DISTRO_LEN];
+    int manual = winVsockLegacyOverrides(winLocalManaged, argc, argv);
 
     if (!g_fWslVsock) {
         /* default: don't bind an unusable wildcard listener; explicit
          * -vmid or -listen hyperv means the user manages it themselves */
-        if (!winArgvHas(argc, argv, "-listen", "hyperv") &&
-            !winArgvHas(argc, argv, "-vmid", NULL))
+        if (!(manual & (WIN_VSOCK_MANUAL_LISTEN | WIN_VSOCK_MANUAL_VM)))
             _XSERVTransNoListen("hyperv");
         return;
     }
 
     /* -wslvsock: explicit manual options take precedence */
-    if (winArgvHas(argc, argv, "-vmid", NULL)) {
+    if (manual & WIN_VSOCK_MANUAL_VM) {
         ErrorF("winVsock: -vmid specified, skipping WSL2 auto-detection\n");
         return;
     }
-    if (winArgvHas(argc, argv, "-nolisten", "hyperv"))
+    if (manual & WIN_VSOCK_MANUAL_NOLISTEN)
         return;
 
     g_vsockAuto = TRUE;

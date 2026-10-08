@@ -16,4 +16,12 @@ const char *winManagedValidate(const winManagedOptions *, int noListenAll,
                               int defeatAccessControl);
 const char *winManagedAuthorityError(const char *path, const char *display);
 
+enum {
+    WIN_VSOCK_MANUAL_VM = 1,
+    WIN_VSOCK_MANUAL_LISTEN = 2,
+    WIN_VSOCK_MANUAL_NOLISTEN = 4
+};
+/* Legacy raw option detection is used only outside the validated profile. */
+int winVsockLegacyOverrides(int managed, int argc, char *argv[]);
+
 #endif
