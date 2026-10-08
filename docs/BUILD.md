@@ -1,3 +1,26 @@
+# Building and packaging the local development product
+
+Current final server stage is `C:/Users/walnu/source/vcxsrv-build-tools/final-patched-server-stage`. Its complete retained workspace is named in build-manifest.json: clean base33f692 wrapper followed by reviewed discovery correction755ffc9 and incremental full final target, exit0. Preserve dirty=true, both revisions, patch/hash/blob identities, tool inventory and commands. The final native suite passed; production C warnings remain. This is not a clean-from-scratch final or byte-reproducibility claim.
+
+```powershell
+pwsh -NoProfile -File packaging/build-manager.ps1
+pwsh -NoProfile -File packaging/package.ps1 -ServerStage <final-stage> -ManagerBinary <built-manager.exe> -Output <new-bundle-directory>
+pwsh -NoProfile -File tests/acceptance/Test-InstallGuard.ps1
+pwsh -NoProfile -File tests/acceptance/Test-GuardLifetime.ps1
+pwsh -NoProfile -File tests/acceptance/Test-Package.ps1 -Bundle <bundle-directory>
+```
+
+Packaging requires retained source/resources, pinned official license inputs, the installed VS2022 x64 Redist CRT directory, Python3 with tomllib, cached Cargo.lock crate sources, and source Git objects. It performs no downloads or live install. Manager build is Cargo --locked x64 Release and records compiler, version, source file hashes and binary hash. Product version comes from Cargo0.1.0 plus source revision; native server21.1.16.1 comes from its actual MSVC resource metadata, not old mkzip or Meson versions.
+
+Bundle root contains manager/server/xauth/xkbcomp, all eight required X/font/crypto/compression DLLs, both software/native-WGL GL drivers, app-local Microsoft runtime trio, generated fonts/xkb/locale and databases. xauth needs libXmu/libXext. Legacy dxtn and checked-in libxml2/xlaunch support are excluded because current loader/import closure does not require them. PuTTY/SSH/audio/application extras are excluded.
+
+All selected files, notices, source archive, scripts and data are SHA256/size bound in bundle-manifest.json. corresponding-source.zip includes actual server snapshot build inputs, reviewed source patch/provenance, current manager/package/guest sources and locked crate sources/notices. FreeType uses FTL with attribution, distinct font/component notices remain intact, Terminus actual README is paired with verified official OFL body, and GNU libregex full license plus corresponding source/build/relink inputs are retained. The component inventory records known missing standalone notices without inventing attribution or claiming a comprehensive legal audit.
+
+MSVC DLLs are sourced unmodified from VS Redist, with installed Redist notice and hashes. Microsoft supports application-local DLL deployment subject to edition terms but prefers centrally serviced redistribution; this no-elevation local product must service its bundled runtime on future rebuilds. Sources: [Microsoft runtime deployment](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170), [VS2022 redistribution list](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution), [official OFL](https://openfontlicense.org/open-font-license-official-text/).
+
+Unpack corresponding-source.zip, then run Cargo from `product/manager`; its vendored-source config supports offline locked dependency resolution. Server rebuild uses the reviewed build wrapper with locally selected tool paths/guest pin; the archive contains actual retained substitutions for provenance, and local absolute tool paths require the documented wrapper selection on another host. If the retained base snapshot lacks a later pinned test/document, packaging reads that exact Git blob and lists its revision/hash in SOURCE-INVENTORY.json; absent production/build inputs fail packaging. Corresponding complete library/work sources allow modified-library recompilation/relinking; neither signing nor identical output bytes is asserted.
+
+The sections below are the historical Task1 wrapper setup/evidence. Their original pending states describe that checkpoint; the current final manifest and validation above supersede them.
 # Building the VSOCK-capable VcXsrv baseline
 
 The wrapper targets **Windows x64 Release** from source commit `5cd992072b1b94d7d6312f0dab762638ec4ebbe4`. The linked checkout is `C:\Users\walnu\source\vcxsrv-wsl-manager`, branch `feat/wsl-manager`; the preserved primary checkout remains on `pages`. The approved design and plan were carried onto the source baseline in commit `f91eb3e3a`.
@@ -114,3 +137,4 @@ The native suite requires the provisioned tools tree beside the tool paths file,
 All generator substitutions occur only in the fresh snapshot: four batch files including `xkbcomp/bison.bat`, both Mesa `makefile.srcs`, and atoms/keyboard recipes. Canonical upstream build files remain unchanged. Unsafe executable basenames and conflicting selected generator directories fail explicitly; directory spaces are supported by selecting basenames after exact path resolution checks.
 
 The pinning and setup/compile/install workflow follow [Nix fetchTree's hash contract](https://nix.dev/manual/nix/2.26/language/builtins) and [Meson's documented commands](https://mesonbuild.com/Commands.html).
+
