@@ -6,4 +6,3 @@ $vc='C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary
 $command='call "'+$vc+'" x64 >nul && cl /nologo /W4 /D_CRT_SECURE_NO_WARNINGS /I"'+$root+'" "'+$root+'\tests\server\managed-profile.c" "'+$root+'\xorg-server\hw\xwin\winmanaged.c" "'+$root+'\libXau\AuRead.c" "'+$root+'\libXau\AuDispose.c" "'+$root+'\libXau\AuWrite.c" /Fe:"'+$out+'\managed-profile.exe" && "'+$out+'\managed-profile.exe"'
 Push-Location $out
 try { & cmd.exe /d /s /c $command; if($LASTEXITCODE -ne 0){exit $LASTEXITCODE} } finally {Pop-Location}
-

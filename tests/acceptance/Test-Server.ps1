@@ -1,13 +1,14 @@
 param(
     [Parameter(Mandatory)][string]$Server,
     [Parameter(Mandatory)][string]$Authority,
-    [string]$Python='python',
     [string]$Distro='NixOS',
-    [int]$Display=191,
+    [int]$Display=1,
+    [int]$StartupDisplay=191,
     [int]$ServerProcessId=0,
     [string]$UnixEndpoint,
     [string]$GuestAuthority,
     [string]$LinuxProbePath,
+    [string]$GuestPython='python3',
     [string]$GuestAuthorityDisplay='0'
 )
 $ErrorActionPreference='Stop'
@@ -27,7 +28,7 @@ function Assert-RejectedStartup([string[]]$ServerArguments) {
     $info.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
     $info.RedirectStandardError=$true
     $info.RedirectStandardOutput=$true
-    foreach($argument in (@(":$Display",'-silent-dup-error')+$ServerArguments)) {
+    foreach($argument in (@(":$StartupDisplay",'-silent-dup-error')+$ServerArguments)) {
         $info.ArgumentList.Add($argument)
     }
     $process=[Diagnostics.Process]::Start($info)
@@ -37,7 +38,7 @@ function Assert-RejectedStartup([string[]]$ServerArguments) {
         if(!$process.WaitForExit(10000)) {
             $process.Kill() # This helper owns only this rejected-startup process.
             $process.WaitForExit()
-            throw 'Rejected startup did not exit within ten seconds'
+            throw "Rejected startup did not exit within ten seconds: $($ServerArguments -join ' ')"
         }
         $diagnostic=$stderr.GetAwaiter().GetResult()+$stdout.GetAwaiter().GetResult()
         if($process.ExitCode -eq 0 -or $diagnostic -notmatch 'WSL profile:') {
@@ -48,8 +49,11 @@ function Assert-RejectedStartup([string[]]$ServerArguments) {
 }
 
 Assert-RejectedStartup @('-wslmanaged')
+Assert-RejectedStartup @('-wslmanaged','-auth')
 Assert-RejectedStartup @('-wslmanaged','-auth',(Join-Path $evidence 'missing.auth'))
+Assert-RejectedStartup @('-auth',(Join-Path $evidence 'missing.auth'),'-wslmanaged')
 Assert-RejectedStartup @('-wslmanaged','-auth',$invalidAuthority)
+Assert-RejectedStartup @('-auth',$invalidAuthority,'-wslmanaged')
 $conflicts=@(
     @('-ac'), @('-listen','tcp'), @('-listen','inet'), @('-listen','inet6'),
     @('-nolisten','winlocal'), @('-nolisten','hyperv'), @('-nowslvsock'),
@@ -62,13 +66,17 @@ foreach($conflict in $conflicts) {
 Write-Host 'PASS managed startup rejects missing/invalid authority and conflicting flags in both orders'
 
 function Assert-NoTcp {
-    $listeners=@(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-        Where-Object OwningProcess -eq $ServerProcessId)
+    $listeners=@(Get-NetTCPConnection -ErrorAction Stop |
+        Where-Object { $_.State -eq 'Listen' -and $_.OwningProcess -eq $ServerProcessId })
     if($listeners.Count) { throw 'Managed test server owns a TCP listener' }
 }
 function Assert-Probe([string[]]$ProbeArguments,[int]$Expected) {
-    $probeOutput=& $Python (Join-Path $PSScriptRoot 'x11-probe.py') @ProbeArguments
-    if($LASTEXITCODE -ne $Expected) { throw "Setup probe expected $Expected, received $LASTEXITCODE" }
+    $probeOutput=& (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File (Join-Path $PSScriptRoot 'x11-probe.ps1') @ProbeArguments
+    $expectedText=if($Expected -eq 0){'ACCEPTED'}else{'REJECTED'}
+    if($LASTEXITCODE -ne $Expected -or @($probeOutput).Count -ne 1 -or
+        ([string]@($probeOutput)[0]).Trim() -ne $expectedText) {
+        throw "Setup probe expected $expectedText with exit $Expected, received exit $LASTEXITCODE"
+    }
     Write-Host $probeOutput
     Assert-NoTcp
 }
@@ -76,10 +84,10 @@ if($ServerProcessId) {
     $null=Get-Process -Id $ServerProcessId
     if(!$UnixEndpoint) { throw 'UnixEndpoint is required for live local acceptance' }
     Assert-NoTcp
-    $base=@('--unix',$UnixEndpoint,'--display',"$Display")
+    $base=@('-UnixEndpoint',$UnixEndpoint,'-Display',"$Display")
     Assert-Probe $base 1
-    Assert-Probe ($base+@('--authority',$authorityPath,'--wrong-cookie')) 1
-    Assert-Probe ($base+@('--authority',$authorityPath)) 0
+    Assert-Probe ($base+@('-Authority',$authorityPath,'-WrongCookie')) 1
+    Assert-Probe ($base+@('-Authority',$authorityPath)) 0
     Write-Host 'PASS real local setup: no cookie rejected, wrong cookie rejected, valid cookie accepted; no TCP listeners'
 }
 if($GuestAuthority -or $LinuxProbePath) {
@@ -93,8 +101,13 @@ if($GuestAuthority -or $LinuxProbePath) {
         @{ Args=($base+@('--authority',$GuestAuthority)); Expected=0 }
     )) {
         $probeArguments=$case.Args
-        & wsl.exe --distribution $Distro --exec python3 $LinuxProbePath @probeArguments
-        if($LASTEXITCODE -ne $case.Expected) { throw 'Real VSOCK setup acceptance failed' }
+        $probeOutput=& wsl.exe --distribution $Distro --exec $GuestPython $LinuxProbePath @probeArguments
+        $expectedText=if($case.Expected -eq 0){'ACCEPTED'}else{'REJECTED'}
+        if($LASTEXITCODE -ne $case.Expected -or @($probeOutput).Count -ne 1 -or
+            ([string]@($probeOutput)[0]).Trim() -ne $expectedText) {
+            throw 'Real VSOCK setup acceptance failed or the guest probe did not execute'
+        }
+        Write-Host $probeOutput
         Assert-NoTcp
     }
     Write-Host 'PASS real VSOCK setup: no cookie rejected, wrong cookie rejected, valid cookie accepted; no TCP listeners'

@@ -74,6 +74,33 @@ static int iLastScreen = -1;
 static winScreenInfo defaultScreenInfo;
 static winManagedOptions managedOptions;
 
+static void
+winLegacyAuthorityWarning(const char *path)
+{
+    HANDLE file;
+    if (!path)
+        return;
+    file = CreateFile(path, GENERIC_READ, FILE_SHARE_READ, NULL,
+                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE)
+        winMessageBoxF("This authorization file for the -auth option could not be opened...\n"
+                       "\"%s\"\n"
+                       "You should use an \"Xauthority\" file in your HOME directory.\n"
+                       "\nIgnoring and continuing.\n", MB_ICONINFORMATION, path);
+    else
+        CloseHandle(file);
+}
+
+static void
+winManagedFatal(const char *reason)
+{
+    /* Native FatalError formats only the vendor dialog buffer, and the
+     * silent-error option suppresses that dialog. Always retain an explanation
+     * in the server log/stderr for managed startup failures. */
+    ErrorF("WSL profile: %s\n", reason);
+    FatalError("WSL profile: %s\n", reason);
+}
+
 void
 winApplyManagedProfile(void)
 {
@@ -81,15 +108,19 @@ winApplyManagedProfile(void)
                                            defeatAccessControl);
     int i;
     if (reason)
-        FatalError("WSL profile: %s\n", reason);
+        winManagedFatal(reason);
     g_pszWslDistro = managedOptions.distro;
-    if (!managedOptions.enabled)
+    if (!managedOptions.enabled) {
+        /* Defer the legacy modal warning until we know the final profile.
+         * Managed -auth failures must exit even when -wslmanaged comes later. */
+        winLegacyAuthorityWarning(managedOptions.authority);
         return;
+    }
     if (!explicit_display)
         display = "1";
     reason = winManagedAuthorityError(managedOptions.authority, display);
     if (reason)
-        FatalError("WSL profile: %s\n", reason);
+        winManagedFatal(reason);
     /* TCP aliases were applied during generic parsing. Reassert the invariant
      * after the complete argument stream, before any listener exists. */
     if (_XSERVTransNoListen("tcp") || _XSERVTransIsListening("inet")
@@ -97,7 +128,7 @@ winApplyManagedProfile(void)
         || _XSERVTransIsListening("inet6")
 #endif
         )
-        FatalError("WSL profile: unable to disable every TCP listener\n");
+        winManagedFatal("unable to disable every TCP listener");
     g_pszWslDistro = managedOptions.distro ? managedOptions.distro : "NixOS";
     g_fWslVsock = TRUE;
     g_fClipboard = TRUE;
@@ -110,7 +141,7 @@ winApplyManagedProfile(void)
             g_ScreenInfo[i].fMultipleMonitors = TRUE;
     }
     if (!winValidateArgs())
-        FatalError("WSL profile: invalid screen options\n");
+        winManagedFatal("invalid screen options");
     /* Immutable while internal clients run. This also activates strict auth. */
     winLocalManaged = 1;
 }
@@ -1019,21 +1050,10 @@ ddxProcessArgument(int argc, char *argv[], int i)
      * Look for the '-auth' argument
      */
     if (IS_OPTION("-auth")) {
-        HANDLE hFile;
-        char *pszFile;
+        if (i + 1 >= argc && managedOptions.enabled)
+            return 1; /* Final validation gives a non-modal managed error. */
         CHECK_ARGS(1);
         g_fAuthEnabled = TRUE;
-        pszFile = argv[++i];
-        hFile = CreateFile(pszFile,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
-        if (hFile == INVALID_HANDLE_VALUE)
-            winMessageBoxF("This authorization file for the -auth option could not be opened...\n"
-                           "\"%s\"\n"
-                           "You should use an \"Xauthority\" file in your HOME directory.\n"
-                           "\nIgnoring and continuing.\n",
-                           MB_ICONINFORMATION,
-                           pszFile);
-        else
-          CloseHandle(hFile);
         return 0;               /* Let DIX parse this again */
     }
 

@@ -11,5 +11,3 @@ $flags='/nologo /Gy /W3 /D_CRT_SECURE_NO_WARNINGS /DWIN32 /D_WINDOWS /D__MINGW32
 $command='call "'+$vc+'" x64 >nul && cl '+$flags+' '+($includes -join ' ')+' "'+$root+'\tests\server\managed-auth.c" "'+$root+'\xorg-server\os\clientauth.c" /Fe:"'+$out+'\managed-auth.exe" /link /OPT:REF ws2_32.lib && "'+$out+'\managed-auth.exe"'
 Push-Location $out
 try { & cmd.exe /d /s /c $command; if($LASTEXITCODE -ne 0){exit $LASTEXITCODE} } finally {Pop-Location}
-
-
