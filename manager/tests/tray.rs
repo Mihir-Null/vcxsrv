@@ -4,6 +4,7 @@ use std::{
     ptr::null,
     time::{Duration, Instant},
 };
+static TRAY_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 struct Fixture(std::process::Child);
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -43,6 +44,7 @@ fn tray_start_launch_refresh_dispatch_typed_actions_and_stop_needs_confirmation(
 }
 #[test]
 fn actual_manager_tray_missing_companion_is_responsive_restores_icon_and_exits() {
+    let _serial = TRAY_SERIAL.lock().unwrap();
     let path = std::env::temp_dir().join(format!("task6-tray-{}", std::process::id()));
     let guard = std::sync::Arc::new(
         vcxsrv_wsl_manager::instance::InstanceGuard::acquire(&format!(
@@ -134,6 +136,60 @@ fn actual_manager_tray_missing_companion_is_responsive_restores_icon_and_exits()
         0
     );
     assert_eq!(response, 1, "icon was not re-added/versioned");
+    // Real modal message pumps: nested genuine worker notifications and Explorer restore.
+    unsafe {
+        PostMessageW(hwnd, WM_COMMAND, CMD_STOP as usize, 0);
+    }
+    let dialog = wait_owned_window(child.id(), "#32770", Some("Confirm Stop server"));
+    unsafe {
+        PostMessageW(hwnd, WM_COMMAND, CMD_START as usize, 0);
+        PostMessageW(hwnd, WM_APP + 2, 0, 0);
+    }
+    assert_ne!(
+        unsafe { SendMessageTimeoutW(hwnd, message, 0, 0, SMTO_ABORTIFHUNG, 1000, &mut response) },
+        0
+    );
+    assert_eq!(response, 1);
+    assert_ne!(
+        unsafe { SendMessageTimeoutW(hwnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 1000, &mut response) },
+        0
+    );
+    unsafe {
+        PostMessageW(dialog, WM_COMMAND, IDNO as usize, 0);
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while unsafe { IsWindow(dialog) } != 0 {
+        assert!(Instant::now() < deadline, "Stop modal did not close");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    unsafe {
+        PostMessageW(hwnd, WM_APP + 1, 0, WM_CONTEXTMENU as isize);
+    }
+    let _menu = wait_owned_window(child.id(), "#32768", None);
+    unsafe {
+        PostMessageW(hwnd, WM_COMMAND, CMD_START as usize, 0);
+        PostMessageW(hwnd, WM_APP + 2, 0, 0);
+    }
+    assert_ne!(
+        unsafe { SendMessageTimeoutW(hwnd, message, 0, 0, SMTO_ABORTIFHUNG, 1000, &mut response) },
+        0
+    );
+    assert_eq!(response, 1);
+    unsafe {
+        PostMessageW(hwnd, WM_CANCELMODE, 0, 0);
+    }
+    assert_ne!(
+        unsafe { SendMessageTimeoutW(hwnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 1000, &mut response) },
+        0
+    );
+    // A subsequent action and Exit inside another modal must still dispatch.
+    unsafe {
+        PostMessageW(hwnd, WM_COMMAND, CMD_START as usize, 0);
+    }
+    unsafe {
+        PostMessageW(hwnd, WM_COMMAND, CMD_STOP as usize, 0);
+    }
+    let _exit_dialog = wait_owned_window(child.id(), "#32770", Some("Confirm Stop server"));
     unsafe {
         PostMessageW(hwnd, WM_COMMAND, CMD_EXIT as usize, 0);
     }
@@ -148,4 +204,139 @@ fn actual_manager_tray_missing_companion_is_responsive_restores_icon_and_exits()
     }
     assert!(!path.join("authority").exists());
     std::fs::remove_dir_all(path).unwrap();
+}
+#[test]
+fn actual_tray_rejects_missing_explicit_config_but_creates_implicit_default() {
+    let _serial = TRAY_SERIAL.lock().unwrap();
+    let path = std::env::temp_dir().join(format!("task6-explicit-config-{}", std::process::id()));
+    let guard = std::sync::Arc::new(
+        vcxsrv_wsl_manager::instance::InstanceGuard::acquire(&format!(
+            "task6-explicit-config-{}",
+            std::process::id()
+        ))
+        .unwrap(),
+    );
+    let directory =
+        vcxsrv_wsl_manager::storage::ProtectedDirectory::open_or_create(&path, guard).unwrap();
+    drop(directory);
+    let missing = path.join("mistyped.json");
+    let mut child = Fixture(
+        Command::new(env!("CARGO_BIN_EXE_vcxsrv-wsl-manager"))
+            .args(["--tray", "--state-dir"])
+            .arg(&path)
+            .arg("--config")
+            .arg(&missing)
+            .creation_flags(0x08000000)
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            panic!("explicit missing config did not fail tray startup");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(!status.success());
+    assert!(!missing.exists());
+    assert!(!path.join("authority").exists());
+    assert!(!path.join("ownership.json").exists());
+    assert!(!path.join("config.json").exists());
+    let mut child = Fixture(
+        Command::new(env!("CARGO_BIN_EXE_vcxsrv-wsl-manager"))
+            .args(["--tray", "--state-dir"])
+            .arg(&path)
+            .creation_flags(0x08000000)
+            .spawn()
+            .unwrap(),
+    );
+    let class: Vec<u16> = "VcXsrvWSL.Manager".encode_utf16().chain(Some(0)).collect();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let hwnd = loop {
+        let hwnd = unsafe { FindWindowW(class.as_ptr(), null()) };
+        if !hwnd.is_null() && path.join("config.json").exists() {
+            break hwnd;
+        }
+        assert!(child.try_wait().unwrap().is_none());
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    unsafe {
+        PostMessageW(hwnd, WM_COMMAND, CMD_STOP as usize, 0);
+    }
+    let _exit_dialog = wait_owned_window(child.id(), "#32770", Some("Confirm Stop server"));
+    unsafe {
+        PostMessageW(hwnd, WM_COMMAND, CMD_EXIT as usize, 0);
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!path.join("authority").exists());
+    assert!(!path.join("ownership.json").exists());
+    std::fs::remove_dir_all(path).unwrap();
+}
+fn wait_owned_window(
+    pid: u32,
+    class: &str,
+    title: Option<&str>,
+) -> windows_sys::Win32::Foundation::HWND {
+    struct Search<'a> {
+        pid: u32,
+        class: &'a str,
+        title: Option<&'a str>,
+        found: windows_sys::Win32::Foundation::HWND,
+    }
+    unsafe extern "system" fn visit(
+        hwnd: windows_sys::Win32::Foundation::HWND,
+        parameter: isize,
+    ) -> i32 {
+        let search = &mut *(parameter as *mut Search<'_>);
+        let mut pid = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid != search.pid {
+            return 1;
+        }
+        let mut buffer = [0u16; 256];
+        let n = GetClassNameW(hwnd, buffer.as_mut_ptr(), 256);
+        if String::from_utf16_lossy(&buffer[..n as usize]) != search.class {
+            return 1;
+        }
+        if let Some(title) = search.title {
+            let n = GetWindowTextW(hwnd, buffer.as_mut_ptr(), 256);
+            if String::from_utf16_lossy(&buffer[..n as usize]) != title {
+                return 1;
+            }
+        }
+        search.found = hwnd;
+        0
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let mut search = Search {
+            pid,
+            class,
+            title,
+            found: std::ptr::null_mut(),
+        };
+        unsafe {
+            EnumWindows(Some(visit), (&mut search as *mut Search<'_>) as isize);
+        }
+        if !search.found.is_null() {
+            return search.found;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "native modal/menu did not appear"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }

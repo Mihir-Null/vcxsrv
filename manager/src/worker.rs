@@ -195,7 +195,7 @@ fn config_for(
         .map_err(|_| {
             "Invalid config.json; verify schema, distro, user, display and absolute companion path"
         }),
-        Err(StorageError::Missing) if create => {
+        Err(StorageError::Missing) if create && options.config.is_none() => {
             let bytes =
                 serde_json::to_vec_pretty(&defaults).map_err(|_| "Config serialization failed")?;
             drop(
@@ -206,6 +206,7 @@ fn config_for(
             Ok(defaults)
         }
         Err(StorageError::Missing) if options.config.is_none() => Ok(defaults),
+        Err(StorageError::Missing) => Err("Explicit config file is missing; check --config path"),
         Err(_) => Err("Config failed private-file validation; existing ACLs are never repaired"),
     }
 }
