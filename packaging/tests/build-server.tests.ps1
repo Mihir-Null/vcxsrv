@@ -67,7 +67,7 @@ Check 'build driver stops immediately when the compiler command fails' {
     Assert (Test-Path $driver) 'checked build driver is not implemented'
     $build = Join-Path $work 'driver-source'
     New-Item -ItemType Directory -Path (Join-Path $build 'tools/mhmake'), (Join-Path $build 'xorg-server/hw/xwin') -Force | Out-Null
-    foreach ($file in @('tools/mhmake/makelex.bat','tools/mhmake/makebison.bat','xorg-server/hw/xwin/doflexbison.bat')) { Set-Content (Join-Path $build $file) '@echo off' }
+    foreach ($file in @('tools/mhmake/makelex.bat','tools/mhmake/makebison.bat','xorg-server/hw/xwin/doflexbison.bat','xkbcomp/bison.bat','mesalib/src/compiler/makefile.srcs','mesalib/src/mesa/makefile.srcs','xorg-server/dix/makefile','xorg-server/dix/generate-atoms','xorg-server/xkeyboard-config/makefile')) { New-Item -ItemType Directory (Split-Path (Join-Path $build $file) -Parent) -Force | Out-Null; Set-Content (Join-Path $build $file) '@echo off' }
     $compiler = Join-Path $work 'compiler.cmd'; Set-Content $compiler '@exit /b 19'
     $vcvars = Join-Path $work 'vcvars.bat'; Set-Content $vcvars '@exit /b 0'
     $tools = @{vcvarsall=$vcvars; msbuild=$compiler; python=$compiler; win_bison=$compiler; win_flex=$compiler; bash=$compiler}
@@ -84,7 +84,7 @@ Check 'driver invokes a real Python generator from a spaced path in Release mode
     $driver = Join-Path $root 'packaging/build-driver.ps1'
     $build = Join-Path $work 'generator-source'
     New-Item -ItemType Directory -Path (Join-Path $build 'tools/mhmake'), (Join-Path $build 'xorg-server/hw/xwin') -Force | Out-Null
-    foreach ($file in @('tools/mhmake/makelex.bat','tools/mhmake/makebison.bat','xorg-server/hw/xwin/doflexbison.bat')) { Set-Content (Join-Path $build $file) '@echo off' }
+    foreach ($file in @('tools/mhmake/makelex.bat','tools/mhmake/makebison.bat','xorg-server/hw/xwin/doflexbison.bat','xkbcomp/bison.bat','mesalib/src/compiler/makefile.srcs','mesalib/src/mesa/makefile.srcs','xorg-server/dix/makefile','xorg-server/dix/generate-atoms','xorg-server/xkeyboard-config/makefile')) { New-Item -ItemType Directory (Split-Path (Join-Path $build $file) -Parent) -Force | Out-Null; Set-Content (Join-Path $build $file) '@echo off' }
     $python = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE 'AppData/Local/Programs/Python') -Filter python.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
     Assert ($null -ne $python) 'native Python installation needed for generator regression test'
     $pythonHome = Split-Path $python -Parent
@@ -130,7 +130,7 @@ Check 'driver imports the real BuildTools x64 environment from its spaced path' 
     Assert ($null -ne $vsRoot) 'installed BuildTools required for environment regression'
     $build = Join-Path $work 'real-environment-source'
     New-Item -ItemType Directory -Path (Join-Path $build 'tools/mhmake'), (Join-Path $build 'xorg-server/hw/xwin') -Force | Out-Null
-    foreach ($file in @('tools/mhmake/makelex.bat','tools/mhmake/makebison.bat','xorg-server/hw/xwin/doflexbison.bat')) { Set-Content (Join-Path $build $file) '@echo off' }
+    foreach ($file in @('tools/mhmake/makelex.bat','tools/mhmake/makebison.bat','xorg-server/hw/xwin/doflexbison.bat','xkbcomp/bison.bat','mesalib/src/compiler/makefile.srcs','mesalib/src/mesa/makefile.srcs','xorg-server/dix/makefile','xorg-server/dix/generate-atoms','xorg-server/xkeyboard-config/makefile')) { New-Item -ItemType Directory (Split-Path (Join-Path $build $file) -Parent) -Force | Out-Null; Set-Content (Join-Path $build $file) '@echo off' }
     $trace = Join-Path $work 'real-vcvars-result.txt'
     $compiler = Join-Path $work 'real-environment-compiler.cmd'
     @('@echo off', ('echo %VSCMD_ARG_TGT_ARCH% > "' + $trace + '"'), ('echo %VCToolsInstallDir% >> "' + $trace + '"'), 'exit /b 19') | Set-Content $compiler

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "status": "incomplete-no-bootstrap",
+  "status": "pinned-local-tools-no-bootstrap",
   "sourceCommit": "5cd992072b1b94d7d6312f0dab762638ec4ebbe4",
-  "capturedUtc": "2026-10-08T00:27:05.9345517Z",
-  "policy": "Installed-file SHA256 fingerprints below are not download hashes. No downloads or global installations are implemented. Select immutable official archives, versions and verify archive SHA256 before adding bootstrap.",
+  "capturedUtc": "2026-10-08T00:39:19.8630029Z",
+  "policy": "Official fixed-version archives are pinned by downloaded SHA256. publisherChecksumVerified distinguishes comparison with a separately published digest from a local HTTPS download fingerprint. No global installation or bootstrap is implemented. Installed-tool SHA256 fields remain file fingerprints, not archive hashes.",
   "windowsSdkVersions": [
     "10.0.26100.0"
   ],
@@ -69,49 +69,82 @@
       "sha256": "66B484C89583BD78F94FFCAE69D57D0BE05C9D682FBE265E55E5E95E9C0B89D5"
     }
   ],
-  "downloadDependencies": [],
-  "unresolvedDependencies": [
+  "downloadDependencies": [
     {
-      "version": null,
-      "name": "nasm",
-      "archiveSha256": null,
-      "officialProjectUrl": "https://www.nasm.us/",
-      "downloadUrl": null
+      "name": "strawberry-perl-5.42.3.1-64bit-portable.zip",
+      "url": "https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_54231_64bit/strawberry-perl-5.42.3.1-64bit-portable.zip",
+      "sha256": "6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690",
+      "publisherChecksumVerified": true
     },
     {
-      "version": null,
-      "name": "jom",
-      "archiveSha256": null,
-      "officialProjectUrl": "https://wiki.qt.io/Jom",
-      "downloadUrl": null
+      "name": "jom_1_1_4.zip",
+      "url": "https://download.qt.io/official_releases/jom/jom_1_1_4.zip",
+      "sha256": "d533c1ef49214229681e90196ed2094691e8c4a0a0bef0b2c901debcb562682b",
+      "publisherChecksumVerified": true
     },
     {
-      "version": null,
-      "name": "win-flex-bison",
-      "archiveSha256": null,
-      "officialProjectUrl": "https://github.com/lexxmark/winflexbison",
-      "downloadUrl": null
+      "name": "win_flex_bison-2.5.25.zip",
+      "url": "https://github.com/lexxmark/winflexbison/releases/download/v2.5.25/win_flex_bison-2.5.25.zip",
+      "sha256": "8d324b62be33604b2c45ad1dd34ab93d722534448f55a16ca7292de32b6ac135",
+      "publisherChecksumVerified": false
     },
     {
-      "version": null,
-      "name": "gperf",
-      "archiveSha256": null,
-      "officialProjectUrl": "https://www.gnu.org/software/gperf/",
-      "downloadUrl": null
+      "name": "nasm-2.16.03-win64.zip",
+      "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip",
+      "sha256": "3ee4782247bcb874378d02f7eab4e294a84d3d15f3f6ee2de2f47a46aa7226e6",
+      "publisherChecksumVerified": false
     },
     {
-      "version": null,
-      "name": "python-lxml-mako",
-      "archiveSha256": null,
-      "officialProjectUrl": "https://pypi.org/",
-      "downloadUrl": null
+      "name": "gperf-3.3-1-x86_64.pkg.tar.zst",
+      "url": "https://mirror.msys2.org/msys/x86_64/gperf-3.3-1-x86_64.pkg.tar.zst",
+      "sha256": "e30b01280ea80cbe0de099ba9c94389faa1f6cb51bee9f35f16883bf0ee384e3",
+      "publisherChecksumVerified": true,
+      "checksumSource": "Installed MSYS2 sync database msys.db gperf-3.3-1/desc"
     },
     {
-      "version": null,
-      "name": "native-perl-compatibility",
-      "archiveSha256": null,
-      "officialProjectUrl": "https://strawberryperl.com/",
-      "downloadUrl": null
+      "name": "lxml",
+      "version": "6.1.3",
+      "filename": "lxml-6.1.3-cp314-cp314-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/0f/bc/5811cc73cac05e324e05ba9b0924e1a163a317a167ede8a9c748b11db30a/lxml-6.1.3-cp314-cp314-win_amd64.whl",
+      "sha256": "66299564c046bc7e0cc5de5106601eae907e9fa5904cd68a323380a8502f7861",
+      "publisherChecksumVerified": true
+    },
+    {
+      "name": "mako",
+      "version": "1.4.3",
+      "filename": "mako-1.4.3-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/6d/a0/053d6af3e8f871e0073b4a36732d9e65be77a72e5434c31b94f6af78a6bb/mako-1.4.3-py3-none-any.whl",
+      "sha256": "723296007c870bfd6b3f0c3230dba7198096e5269297ebf5e4eff9e7ffa39d4f",
+      "publisherChecksumVerified": true
+    },
+    {
+      "name": "markupsafe",
+      "version": "3.0.4",
+      "filename": "markupsafe-3.0.4-cp314-cp314-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/80/f0/5792ff768a410f93ee3f84fc19345295ffc352d2c936b424cb37e514714c/markupsafe-3.0.4-cp314-cp314-win_amd64.whl",
+      "sha256": "c1bc67752d5f21013cfe430df4062441714eab79f65a6a05e01505957e9c35fe",
+      "publisherChecksumVerified": true
+    },
+    {
+      "name": "PyYAML",
+      "version": "6.0.3",
+      "filename": "pyyaml-6.0.3-cp314-cp314-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/23/20/bb6982b26a40bb43951265ba29d4c246ef0ff59c9fdcdf0ed04e0687de4d/pyyaml-6.0.3-cp314-cp314-win_amd64.whl",
+      "sha256": "4a2e8cebe2ff6ab7d1050ecd59c25d4c8bd7e6f400f5f82b96557ac0abafd0ac",
+      "publisherChecksumVerified": true
     }
-  ]
+  ],
+  "unresolvedDependencies": [],
+  "keyboardBuild": {
+    "system": "x86_64-linux",
+    "packages": [
+      "meson",
+      "ninja",
+      "gettext",
+      "perl",
+      "python3"
+    ],
+    "narHash": "sha256-vrwAiXmz+0hs/IWXZalFG/Ws6xQRcW+gClUDlfvcfjQ=",
+    "revision": "ecc58f32d1069a3e3f8a991e2233d365689f748d"
+  }
 }

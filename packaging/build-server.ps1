@@ -5,6 +5,8 @@ param(
     [Parameter(Mandatory)][string]$OutputRoot,
     [ValidateSet('Preflight','Build')][string]$Mode = 'Preflight',
     [string]$ToolPathsFile,
+    [string]$BuildDistro = 'NixOS',
+    [string]$BuildUser = 'Empty',
     [ValidateRange(1,256)][int]$Jobs = [Environment]::ProcessorCount
 )
 $ErrorActionPreference = 'Stop'
@@ -38,8 +40,8 @@ try {
         Copy-Item -LiteralPath (Join-Path $source $relative) -Destination $destination
     }
     $started = [datetime]::UtcNow
-    & (Join-Path $PSScriptRoot 'build-driver.ps1') -BuildRoot $workspace -Tools $tools -Jobs $Jobs
-    $manifest = @{schemaVersion=1; sourceCommit=$sourceCommit; dirty=$dirty; startedUtc=$started.ToString('o'); sourceRoot=$source; buildWorkspace=$workspace; toolInventory=$inventory; buildCommand=@('build-driver.ps1','-BuildRoot',$workspace,'-Jobs',"$Jobs"); status='built'}
+    $keyboard = & (Join-Path $PSScriptRoot 'build-driver.ps1') -BuildRoot $workspace -Tools $tools -Jobs $Jobs -BuildDistro $BuildDistro -BuildUser $BuildUser
+    $manifest = @{schemaVersion=1; sourceCommit=$sourceCommit; dirty=$dirty; startedUtc=$started.ToString('o'); sourceRoot=$source; buildWorkspace=$workspace; toolInventory=$inventory; buildCommand=@('build-driver.ps1','-BuildRoot',$workspace,'-Jobs',"$Jobs",'-BuildDistro',$BuildDistro,'-BuildUser',$BuildUser); status='built'; keyboardBuild=$keyboard}
     Publish-BuildArtifacts $workspace $output @('xorg-server/obj64/servrelease/vcxsrv.exe','apps/xauth/obj64/release/xauth.exe','xkbcomp/obj64/release/xkbcomp.exe') $started $manifest
     Write-Host "Build staged at $output (workspace retained at $workspace)."
 } catch {
