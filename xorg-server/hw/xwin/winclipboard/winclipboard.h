@@ -31,7 +31,10 @@
 #include <xcb/xcb.h>
 #include <X11/Xmd.h> // for BOOL type
 
+typedef xcb_connection_t *(*winClipboardConnector)(const char *, xcb_auth_info_t *, int *);
 BOOL winClipboardProc(char *szDisplay, xcb_auth_info_t *auth_info);
+BOOL winClipboardProcWithConnector(char *szDisplay, xcb_auth_info_t *auth_info,
+                                   winClipboardConnector connector);
 
 void winFixClipboardChain (int Removed);
 

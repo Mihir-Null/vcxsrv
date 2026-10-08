@@ -31,4 +31,12 @@
 void
 winGetDisplayName(char *szDisplay, unsigned int screen);
 
+#include <xcb/xcb.h>
+xcb_connection_t *winConnectInternal(const char *display_name,
+                                     xcb_auth_info_t *auth,
+                                     int *screen_return,
+                                     unsigned int screen);
+xcb_connection_t *winConnectClipboard(const char *display_name,
+                                      xcb_auth_info_t *auth,
+                                      int *screen_return);
 #endif /* !WINDISPLAY_H */

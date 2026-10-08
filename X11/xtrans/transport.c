@@ -66,6 +66,9 @@ from The Open Group.
 #if defined(TCPCONN) || defined(UNIXCONN)
 #include "Xtranssock.c"
 #endif
+#if defined(_WIN32) && !defined(__CYGWIN__) && defined(XSERV_t) && defined(TRANS_SERVER)
+#include "Xtranswinlocal.c"
+#endif
 #include "Xtrans.c"
 #include "Xtransutil.c"
 

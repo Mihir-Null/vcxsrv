@@ -99,6 +99,7 @@
 			     Private Functions
 \*---------------------------------------------------------------------------*/
 
+#if !defined(WIN32) || defined(__CYGWIN__)
 static int map_poll_spec
 			(struct pollfd *pArray,
                          nfds_t         n_fds,
@@ -239,9 +240,36 @@ static void map_select_results
 			     Public Functions
 \*---------------------------------------------------------------------------*/
 
+#endif
+
+#if defined(WIN32) && !defined(__CYGWIN__)
+#include <stdlib.h>
+#include <stdint.h>
+#include <errno.h>
+#include "winpoll.h"
+#endif
+
 int xserver_poll
 	(struct pollfd *pArray, unsigned long n_fds, int timeout)
 {
+#if defined(WIN32) && !defined(__CYGWIN__)
+    struct winpollfd *fds;
+    unsigned long i;
+    int result;
+    if (n_fds > SIZE_MAX / sizeof(*fds)) { errno = ENOMEM; return -1; }
+    fds = n_fds ? malloc(n_fds * sizeof(*fds)) : NULL;
+    if (n_fds && !fds) { errno = ENOMEM; return -1; }
+    for (i = 0; i < n_fds; i++) {
+        fds[i].fd = pArray[i].fd;
+        fds[i].events = pArray[i].events;
+        fds[i].revents = 0;
+    }
+    result = winpoll_wait(fds, n_fds, timeout, NULL);
+    for (i = 0; i < n_fds; i++) pArray[i].revents = fds[i].revents;
+    free(fds);
+    if (result < 0) errno = WSAGetLastError();
+    return result;
+#else
     fd_set  read_descs;                          /* input file descs */
     fd_set  write_descs;                         /* output file descs */
     fd_set  except_descs;                        /* exception descs */
@@ -277,4 +305,5 @@ int xserver_poll
     }
 
     return ready_descriptors;
+#endif
 }

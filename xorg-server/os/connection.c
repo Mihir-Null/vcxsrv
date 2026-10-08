@@ -247,6 +247,10 @@ NotifyParentProcess(void)
 #endif
 }
 
+#if defined(_WIN32) && !defined(__CYGWIN__)
+#include "winlocal.h"
+#endif
+
 static Bool
 TryCreateSocket(int num, int *partial)
 {
@@ -273,6 +277,13 @@ CreateWellKnownSockets(void)
     /* display is initialized to "0" by main(). It is then set to the display
      * number if specified on the command line. */
 
+#if defined(_WIN32) && !defined(__CYGWIN__)
+    if (winLocalManaged) {
+        if (NoListenAll || !winlocal_prepare(NULL))
+            FatalError("Managed local endpoint preparation failed");
+        _XSERVTransListen("winlocal");
+    }
+#endif
     if (NoListenAll) {
         ListenTransCount = 0;
     }
@@ -300,6 +311,10 @@ CreateWellKnownSockets(void)
         LogSetDisplay();
     }
 
+#if defined(_WIN32) && !defined(__CYGWIN__)
+    if (winLocalManaged && !winlocal_listener_ready())
+        FatalError("Required managed local listener unavailable");
+#endif
     ListenTransFds = xallocarray(ListenTransCount, sizeof (int));
     if (ListenTransFds == NULL)
         FatalError ("Failed to create listening socket array");
@@ -490,7 +505,7 @@ AuthAudit(ClientPtr client, Bool letin,
     else
         switch (saddr->sa_family) {
         case AF_UNSPEC:
-#if defined(UNIXCONN) || defined(LOCALCONN)
+#if defined(UNIXCONN) || defined(LOCALCONN) || (defined(_WIN32) && !defined(__CYGWIN__))
         case AF_UNIX:
 #endif
             strlcpy(addr, "local host", sizeof(addr));

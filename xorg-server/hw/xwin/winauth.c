@@ -56,6 +56,7 @@ static XID g_authId = 0;
 static unsigned int g_uiAuthDataLen = 0;
 static char *g_pAuthData = NULL;
 static xcb_auth_info_t auth_info;
+static BOOL auth_ready = FALSE;
 
 /*
  * Code to generate a MIT-MAGIC-COOKIE-1, copied from under XCSECURITY
@@ -85,27 +86,15 @@ winGenerateAuthorization(void)
     SecurityAuthorizationPtr pAuth = NULL;
 #endif
 
+    auth_ready = FALSE;
     /* Call OS layer to generate authorization key */
     g_authId = GenerateAuthorization(strlen(AUTH_NAME),
                                      AUTH_NAME,
                                      0, NULL, &g_uiAuthDataLen, &g_pAuthData);
-    if ((XID) ~0L == g_authId) {
+    if ((XID) ~0L == g_authId || !g_pAuthData || !g_uiAuthDataLen) {
         ErrorF("winGenerateAuthorization - GenerateAuthorization failed\n");
         return FALSE;
     }
-#ifdef WINDBG
-    else {
-        winDebug("winGenerateAuthorization - GenerateAuthorization success!\n"
-                 "AuthDataLen: %d AuthData: %s\n",
-                 g_uiAuthDataLen, g_pAuthData);
-    }
-#endif
-
-    auth_info.name = strdup(AUTH_NAME);
-    auth_info.namelen = strlen(AUTH_NAME);
-    auth_info.data = g_pAuthData;
-    auth_info.datalen = g_uiAuthDataLen;
-
 #ifdef XCSECURITY
     /* Allocate structure for additional auth information */
     pAuth = (SecurityAuthorizationPtr)
@@ -133,13 +122,18 @@ winGenerateAuthorization(void)
     }
 #endif
 
+    auth_info.name = AUTH_NAME;
+    auth_info.namelen = sizeof(AUTH_NAME) - 1;
+    auth_info.data = g_pAuthData;
+    auth_info.datalen = g_uiAuthDataLen;
+    auth_ready = TRUE;
     return TRUE;
 }
 
 xcb_auth_info_t *
 winGetXcbAuthInfo(void)
 {
-    if (g_pAuthData)
+    if (auth_ready)
         return &auth_info;
 
     return NULL;

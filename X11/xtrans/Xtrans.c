@@ -86,6 +86,7 @@ from The Open Group.
 /* 13 used to be SCO, but that's gone. */
 #define TRANS_SOCKET_INET6_INDEX	14
 #define TRANS_LOCAL_PIPE_INDEX		15
+#define TRANS_WINLOCAL_INDEX 17
 #define TRANS_HYPERV_INDEX		16
 
 #if defined(IPv6) && !defined(AF_INET6)
@@ -118,6 +119,9 @@ Xtransport_table Xtransports[] = {
 #endif /* LOCALCONN */
 #if defined(HYPERV)
         { &TRANS(SocketHyperVFuncs), TRANS_HYPERV_INDEX },
+#endif
+#if defined(_WIN32) && !defined(__CYGWIN__) && defined(XSERV_t) && defined(TRANS_SERVER)
+    { &TRANS(WinLocalFuncs), TRANS_WINLOCAL_INDEX },
 #endif
     { NULL, 0}
 };
@@ -1214,6 +1218,10 @@ TRANS(MakeAllCOTSServerListeners) (const char *port, int *partial,
 
 	if ((status = TRANS(CreateListener (ciptr, port, flags))) < 0)
 	{
+#if defined(_WIN32) && !defined(__CYGWIN__) && defined(XSERV_t)
+            if (trans == &TRANS(WinLocalFuncs))
+                TRANS(Close)(ciptr);
+#endif
             if (*partial != 0)
 		continue;
 
@@ -1271,6 +1279,9 @@ TRANS(MakeAllCOTSServerListeners) (const char *port, int *partial,
 	if ((*ciptrs_ret = malloc (
 	    *count_ret * sizeof (XtransConnInfo))) == NULL)
 	{
+            for (j = 0; j < *count_ret; j++)
+                TRANS(Close)(temp_ciptrs[j]);
+            *count_ret = 0;
 	    return -1;
 	}
 

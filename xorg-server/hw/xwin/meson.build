@@ -103,6 +103,7 @@ srcs_windows += [
     'winresource.h',
     'winwindow.h',
     'windisplay.c',
+    'winxcb.c',
     'windisplay.h',
     '../../mi/miinitext.c',
     '../../mi/miinitext.h',

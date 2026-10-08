@@ -34,6 +34,10 @@
 
 #include "windisplay.h"
 #include "winmsg.h"
+#if defined(_WIN32) && !defined(__CYGWIN__)
+#include "../../os/winlocal.h"
+#include "winxcb.h"
+#endif
 
 #define XSERV_t
 #define TRANS_SERVER
@@ -47,6 +51,12 @@
 void
 winGetDisplayName(char *szDisplay, unsigned int screen)
 {
+#if defined(_WIN32) && !defined(__CYGWIN__)
+    if (winLocalManaged) {
+        snprintf(szDisplay, 512, "winlocal:%s.%u", display, screen);
+        return;
+    }
+#endif
 #ifdef LOCALCONN
     if (_XSERVTransIsListening("local")) {
         snprintf(szDisplay, 512, ":%s.%d", display, screen);
@@ -66,4 +76,24 @@ winGetDisplayName(char *szDisplay, unsigned int screen)
     }
 
     winDebug("winGetDisplay: DISPLAY=%s\n", szDisplay);
+}
+
+xcb_connection_t *
+winConnectInternal(const char *display_name, xcb_auth_info_t *auth,
+                   int *screen_return, unsigned int screen)
+{
+#if defined(_WIN32) && !defined(__CYGWIN__)
+    if (winLocalManaged) {
+        if (screen_return) *screen_return = (int)screen;
+        return winLocalXcbConnect(screen, auth);
+    }
+#endif
+    return xcb_connect_to_display_with_auth_info(display_name, auth, screen_return);
+}
+
+xcb_connection_t *
+winConnectClipboard(const char *display_name, xcb_auth_info_t *auth,
+                    int *screen_return)
+{
+    return winConnectInternal(display_name, auth, screen_return, 0);
 }

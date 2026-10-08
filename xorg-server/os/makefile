@@ -15,7 +15,7 @@ XDMCP_SRCS = xdmcp.c
 XORG_SRCS = log.c
 BUSFAULT_SRCS = busfault.c
 
-XSERVER_POLL_SRCS=xserver_poll.c
+XSERVER_POLL_SRCS=xserver_poll.c winpoll.c
 STRLCAT_SRCS = strlcat.c strlcpy.c
 STRNDUP_SRCS = strndup.c
 
@@ -39,6 +39,7 @@ libos_la_SOURCES = 	\
 	xdmauth.c	\
 	xsha1.c		\
 	xstrans.c	\
+	winlocal.c	\
 	xprintf.c	\
 	reallocarray.c  \
 	alloc.c  \

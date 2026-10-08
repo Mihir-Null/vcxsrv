@@ -4,6 +4,7 @@ EXPORTS
   xcb_allow_events
   xcb_composite_redirect_subwindows
   xcb_connect
+  xcb_connect_to_fd
   xcb_connect_to_display_with_auth_info
   xcb_connection_has_error
   xcb_create_glyph_cursor

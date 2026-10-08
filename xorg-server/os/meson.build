@@ -22,6 +22,10 @@ srcs_os = [
     'log.c',
 ]
 
+if host_machine.system() == 'windows'
+    srcs_os += ['winpoll.c', 'winlocal.c']
+endif
+
 # Wrapper code for missing C library functions. Note that conf_data contains either '1' or false.
 srcs_libc = []
 if conf_data.get('HAVE_REALLOCARRAY').to_int() == 0
@@ -58,6 +62,9 @@ if get_option('xdmcp')
 endif
 
 os_dep = []
+if host_machine.system() == 'windows'
+    os_dep += [cc.find_library('bcrypt'), cc.find_library('advapi32')]
+endif
 os_c_args = []
 
 if get_option('xres')

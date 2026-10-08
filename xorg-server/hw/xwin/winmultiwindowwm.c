@@ -1253,9 +1253,8 @@ winMultiWindowXMsgProc(void *pArg)
     /* Open the X display */
     do {
         /* Try to open the display */
-        pProcArg->conn = xcb_connect_to_display_with_auth_info(pszDisplay,
-                                                               auth_info, NULL);
-        if (xcb_connection_has_error(pProcArg->conn)) {
+        pProcArg->conn = winConnectInternal(pszDisplay, auth_info, NULL, pProcArg->dwScreen);
+        if (!pProcArg->conn || xcb_connection_has_error(pProcArg->conn)) {
             ErrorF("winMultiWindowXMsgProc - Could not open display, try: %d, "
                    "sleeping: %d\n", iRetries + 1, WIN_CONNECT_DELAY);
             ++iRetries;
@@ -1265,10 +1264,10 @@ winMultiWindowXMsgProc(void *pArg)
         else
             break;
     }
-    while (xcb_connection_has_error(pProcArg->conn) && iRetries < WIN_CONNECT_RETRIES);
+    while ((!pProcArg->conn || xcb_connection_has_error(pProcArg->conn)) && iRetries < WIN_CONNECT_RETRIES);
 
     /* Make sure that the display opened */
-    if (xcb_connection_has_error(pProcArg->conn)) {
+    if (!pProcArg->conn || xcb_connection_has_error(pProcArg->conn)) {
         ErrorF("winMultiWindowXMsgProc - Failed opening the display.  "
                "Exiting.\n");
         pthread_exit(NULL);
@@ -1726,9 +1725,8 @@ winInitMultiWindowWM(WMInfoPtr pWMInfo, WMProcArgPtr pProcArg)
     /* Open the X display */
     do {
         /* Try to open the display */
-        pWMInfo->conn = xcb_connect_to_display_with_auth_info(pszDisplay,
-                                                              auth_info, NULL);
-        if (xcb_connection_has_error(pWMInfo->conn)) {
+        pWMInfo->conn = winConnectInternal(pszDisplay, auth_info, NULL, pProcArg->dwScreen);
+        if (!pWMInfo->conn || xcb_connection_has_error(pWMInfo->conn)) {
             ErrorF("winInitMultiWindowWM - Could not open display, try: %d, "
                    "sleeping: %d\n", iRetries + 1, WIN_CONNECT_DELAY);
             ++iRetries;
@@ -1738,10 +1736,10 @@ winInitMultiWindowWM(WMInfoPtr pWMInfo, WMProcArgPtr pProcArg)
         else
             break;
     }
-    while (xcb_connection_has_error(pWMInfo->conn) && iRetries < WIN_CONNECT_RETRIES);
+    while ((!pWMInfo->conn || xcb_connection_has_error(pWMInfo->conn)) && iRetries < WIN_CONNECT_RETRIES);
 
     /* Make sure that the display opened */
-    if (xcb_connection_has_error(pWMInfo->conn)) {
+    if (!pWMInfo->conn || xcb_connection_has_error(pWMInfo->conn)) {
         ErrorF("winInitMultiWindowWM - Failed opening the display.  "
                "Exiting.\n");
         pthread_exit(NULL);

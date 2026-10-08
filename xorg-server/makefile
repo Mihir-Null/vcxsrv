@@ -2,6 +2,8 @@ ifneq ($(MAKESERVER),1)
 $(error Please specify MAKESERVER=1 on the command line or as environment variable)
 endif
 
+SYSTEMLIBS += bcrypt.lib
+
 INCLUDELIBFILES =  \
  composite\$(OBJDIR)\libcomposite.lib \
  config\$(OBJDIR)\libconfig.lib \

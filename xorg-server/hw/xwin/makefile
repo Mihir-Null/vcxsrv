@@ -19,6 +19,7 @@ SRCS =	InitInput.c \
 	InitOutput.c \
 	winallpriv.c \
 	winauth.c \
+	winxcb.c \
 	winblock.c \
 	wincmap.c \
 	winconfig.c \

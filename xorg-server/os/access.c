@@ -1623,7 +1623,7 @@ ConvertAddr(register struct sockaddr *saddr, int *len, void **addr)
         return FamilyLocal;
     switch (saddr->sa_family) {
     case AF_UNSPEC:
-#if defined(UNIXCONN) || defined(LOCALCONN)
+#if defined(UNIXCONN) || defined(LOCALCONN) || (defined(_WIN32) && !defined(__CYGWIN__))
     case AF_UNIX:
 #endif
         return FamilyLocal;

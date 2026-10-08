@@ -123,6 +123,14 @@ winClipboardThreadExit(void *arg);
 BOOL
 winClipboardProc(char *szDisplay, xcb_auth_info_t *auth_info)
 {
+    return winClipboardProcWithConnector(szDisplay, auth_info,
+                                         xcb_connect_to_display_with_auth_info);
+}
+
+BOOL
+winClipboardProcWithConnector(char *szDisplay, xcb_auth_info_t *auth_info,
+                               winClipboardConnector connector)
+{
     ClipboardAtoms atoms;
     int iReturn;
     HWND hwnd = NULL;
@@ -146,8 +154,8 @@ winClipboardProc(char *szDisplay, xcb_auth_info_t *auth_info)
     winDebug("winClipboardProc - Hello\n");
 
     /* Make sure that the display opened */
-    conn = xcb_connect_to_display_with_auth_info(szDisplay, auth_info, &screen);
-    if (xcb_connection_has_error(conn)) {
+    conn = connector(szDisplay, auth_info, &screen);
+    if (!conn || xcb_connection_has_error(conn)) {
         ErrorF("winClipboardProc - Failed opening the display, giving up\n");
         goto thread_errorexit;
     }
@@ -366,10 +374,6 @@ winClipboardProc(char *szDisplay, xcb_auth_info_t *auth_info)
      * into the server.  Unlike XCloseDisplay() there will be no deadlock if the
      * server is in the process of exiting and waiting for this thread to exit.
      */
-    if (!xcb_connection_has_error(conn)) {
-        /* Close our X display */
-        xcb_disconnect(conn);
-    }
 
   goto commonexit;
 
@@ -388,6 +392,7 @@ thread_errorexit:
     winDebug ("Clipboard thread died.\n");
 
 commonexit:
+    xcb_disconnect(conn);
     g_iClipboardWindow = None;
     g_pClipboardDisplay = NULL;
     g_fClipboardLaunched = FALSE;

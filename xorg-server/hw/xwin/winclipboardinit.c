@@ -81,7 +81,7 @@ winClipboardThreadProc(void *arg)
       /* Use our generated cookie for authentication */
       auth_info = winGetXcbAuthInfo();
 
-      fShutdown = winClipboardProc(szDisplay, auth_info);
+      fShutdown = winClipboardProcWithConnector(szDisplay, auth_info, winConnectClipboard);
 
       /* Flag that clipboard client has stopped */
       g_fClipboardStarted = FALSE;

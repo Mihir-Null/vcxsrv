@@ -27,3 +27,6 @@ cscope*
 *~
 .makefile.dep
 .vscode
+
+# Native socket test build products and logs
+.native-tests/

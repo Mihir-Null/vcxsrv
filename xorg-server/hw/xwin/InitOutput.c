@@ -32,6 +32,9 @@ from The Open Group.
 #include <xwin-config.h>
 #endif
 
+#if defined(_WIN32) && !defined(__CYGWIN__)
+#include "../../os/winlocal.h"
+#endif
 #include "win.h"
 
 #include "dix/dix_priv.h"
@@ -1080,6 +1083,13 @@ InitOutput(ScreenInfo * pScreenInfo, int argc, char *argv[])
     xorgGlxCreateVendor();
 
     /* Generate a cookie used by internal clients for authorization */
+#if defined(_WIN32) && !defined(__CYGWIN__)
+    if (winLocalManaged) {
+        if (!winGenerateAuthorization())
+            FatalError("Internal managed client authorization unavailable");
+    }
+    else
+#endif
     if (g_fXdmcpEnabled || g_fAuthEnabled)
         winGenerateAuthorization();
 
