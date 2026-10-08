@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "status": "incomplete-no-bootstrap",
+  "sourceCommit": "5cd992072b1b94d7d6312f0dab762638ec4ebbe4",
+  "capturedUtc": "2026-10-08T00:27:05.9345517Z",
+  "policy": "Installed-file SHA256 fingerprints below are not download hashes. No downloads or global installations are implemented. Select immutable official archives, versions and verify archive SHA256 before adding bootstrap.",
+  "windowsSdkVersions": [
+    "10.0.26100.0"
+  ],
+  "installedTools": [
+    {
+      "name": "git",
+      "version": "git version 2.55.0.windows.5",
+      "sha256": "78211C7ED73988DA93A6D8A33D47EC6187F464D7EA2A9A00C182BBD7A1ECF30F"
+    },
+    {
+      "name": "cl",
+      "version": "19.44.35229.0",
+      "sha256": "FE251EF50A1545B1B0835EE17B1E785459712B38D79E45B5C1D3D28970A36619"
+    },
+    {
+      "name": "link",
+      "version": "14.44.35229.0",
+      "sha256": "A364AF801A8539E4324D9489313DBF001D959128451FC99A27B24676BBAC058F"
+    },
+    {
+      "name": "msbuild",
+      "version": "17.14.60.43110",
+      "sha256": "9FB50C5BFD8EA1DE1C66151B25E60B7D4F4F56873618DA98ABB54090FB21AA75"
+    },
+    {
+      "name": "nmake",
+      "version": "14.44.35229.0",
+      "sha256": "CE6B50C2D8E6704B671EC116E52CE9D2FBC1D20DD28C5B895B5421ADDDF94EBB"
+    },
+    {
+      "name": "vcvarsall",
+      "version": null,
+      "sha256": "EE67E4181AE2578B7842F9F1549A7F66E2166638FA544CE6838D9E9033A02275"
+    },
+    {
+      "name": "perl",
+      "version": "This is perl 5, version 42, subversion 3 (v5.42.3) built for x86_64-cygwin-thread-multi",
+      "sha256": "FD72FBE602265BDAF91EB6994EC1248E5119DFFE3E32C8EA43DA49D44D289400"
+    },
+    {
+      "name": "python",
+      "version": "Python 3.14.7",
+      "sha256": "4942B86A6597E5AEE0128DAA00050ED79BC21F6E709A78EB19CBFEB0C2F39AC9"
+    },
+    {
+      "name": "bash",
+      "version": "GNU bash, version 5.3.15(2)-release (x86_64-pc-cygwin)",
+      "sha256": "0010D7D71A94B0441028EEA42381589483836D2C097F24940D282F5C4EBA7919"
+    },
+    {
+      "name": "gawk",
+      "version": "GNU Awk 5.4.1, API 4.1, PMA Avon 8-g1, (GNU MPFR 4.2.2, GNU MP 6.3.0)",
+      "sha256": "F123D2C120B2AD2158AA8C69D8EEEDF14C0D681E68EE76FF103E06AC49986200"
+    },
+    {
+      "name": "sed",
+      "version": "/usr/bin/sed (GNU sed) 4.9",
+      "sha256": "8D54E322DFC3FAA60F0464691ABA8634197406E53367AA8942409181C0808BE8"
+    },
+    {
+      "name": "gzip",
+      "version": "gzip 1.14",
+      "sha256": "66B484C89583BD78F94FFCAE69D57D0BE05C9D682FBE265E55E5E95E9C0B89D5"
+    }
+  ],
+  "downloadDependencies": [],
+  "unresolvedDependencies": [
+    {
+      "version": null,
+      "name": "nasm",
+      "archiveSha256": null,
+      "officialProjectUrl": "https://www.nasm.us/",
+      "downloadUrl": null
+    },
+    {
+      "version": null,
+      "name": "jom",
+      "archiveSha256": null,
+      "officialProjectUrl": "https://wiki.qt.io/Jom",
+      "downloadUrl": null
+    },
+    {
+      "version": null,
+      "name": "win-flex-bison",
+      "archiveSha256": null,
+      "officialProjectUrl": "https://github.com/lexxmark/winflexbison",
+      "downloadUrl": null
+    },
+    {
+      "version": null,
+      "name": "gperf",
+      "archiveSha256": null,
+      "officialProjectUrl": "https://www.gnu.org/software/gperf/",
+      "downloadUrl": null
+    },
+    {
+      "version": null,
+      "name": "python-lxml-mako",
+      "archiveSha256": null,
+      "officialProjectUrl": "https://pypi.org/",
+      "downloadUrl": null
+    },
+    {
+      "version": null,
+      "name": "native-perl-compatibility",
+      "archiveSha256": null,
+      "officialProjectUrl": "https://strawberryperl.com/",
+      "downloadUrl": null
+    }
+  ]
+}
